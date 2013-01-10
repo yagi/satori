@@ -25,6 +25,7 @@ LIBSATORI_OBJ = \
 	../_/Utilities.o \
 	../_/calc.o \
 	../_/stltool.o \
+	../_/mersenne-twister.o \
 	SakuraCS.o \
 	SakuraClient.o \
 	SakuraDLLClient.o \

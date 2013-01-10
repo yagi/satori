@@ -8,6 +8,15 @@
 //#  include	<mbctype.h>	// for _ismbblead,_ismbbtrail
 #endif
 
+//////////DEBUG/////////////////////////
+#ifdef _WINDOWS
+#ifdef _DEBUG
+#include <crtdbg.h>
+#define new new( _NORMAL_BLOCK, __FILE__, __LINE__)
+#endif
+#endif
+////////////////////////////////////////
+
 ostream& operator<<(ostream& o, const strvec& i) {
 	for ( strvec::const_iterator p=i.begin() ; p!=i.end() ; ++p )
 		o << *p << endl;
@@ -72,8 +81,7 @@ bool	getline(istream& i, int& o, int delimtier) {
 	return	true;
 }
 
-bool	aredigits(const string& s) {
-	const char* p = s.c_str();
+bool	aredigits(const char* p) {
 	if ( *p=='-' )
 		++p;
 	if ( *p=='\0' )
@@ -84,8 +92,7 @@ bool	aredigits(const string& s) {
 	return	true;
 }
 
-bool	arealphabets(const string& s) {
-	const char*	p = s.c_str();
+bool	arealphabets(const char* p) {
 	while (*p) {
 		int	c = *p++;
 		if ( c>='a' && c<='z' )
@@ -121,19 +128,19 @@ bool	replace_first(string& str, const string& before, const string& after) {
 }
 */
 
-int	replace(string& str, const string& before, const string& after) {
-	if ( str=="" || before=="" ) return 0;
+int	replace(string& str, const char* before, const char* after) {
+	if ( str=="" || before[0] == 0 ) return 0;
 
 	// •¶š—ñ’·‚ÌŒvZ—p
-	const int		beforeLength = before.size();
-	const int		afterLength = after.size();
+	const int		beforeLength = strlen(before);
+	const int		afterLength = strlen(after);
 	const int		textLength = str.size();
 	const int		diffLength = afterLength - beforeLength;
 
 	// ’u‚«Š·‚¦‘ÎÛ‚ª‚¢‚­‚Â‚ ‚é‚©‚ğƒJƒEƒ“ƒg‚µ‚Ä‚¨‚­
 	const char*	found=str.c_str();
 	int	count=0;
-	while ( (found=strstr_hz(found, before.c_str())) != NULL ) {
+	while ( (found=strstr_hz(found, before)) != NULL ) {
 		found += beforeLength;
 		++count;
 	}
@@ -146,14 +153,14 @@ int	replace(string& str, const string& before, const string& after) {
 	const char*	pread = str.c_str();
 	char*	pwrite = buf;
 	found = str.c_str();
-	while ( (found=strstr_hz(pread, before.c_str())) != NULL ) {
+	while ( (found=strstr_hz(pread, before)) != NULL ) {
 		// ‘ÎÛ•¶š—ñ’¼‘O‚Ü‚Å‚ğƒRƒs[
 		strncpy(pwrite, pread, found-pread);
 		pwrite += found-pread;
 		pread = found;
 
 		// ’u‚«Š·‚¦•¶š—ñ‚ğƒRƒs[
-		strcpy(pwrite, after.c_str());
+		strcpy(pwrite, after);
 		pwrite += afterLength;
 		pread += beforeLength;
 	}
@@ -271,7 +278,7 @@ bool	strvec_to_file(
 }
 
 
-bool	strmap_from_file(strmap& o, const string& iFileName, const string& dlmt)
+bool	strmap_from_file(strmap& o, const string& iFileName, const string& dlmt, const string& front_comment_mark)
 {
 	ifstream	in(iFileName.c_str());
 	if ( !in.is_open() )
@@ -286,6 +293,11 @@ bool	strmap_from_file(strmap& o, const string& iFileName, const string& dlmt)
 		    if (c != '\r') {
 				line += c;
 		    }
+		}
+
+		if ( line.compare(0, front_comment_mark.size(), front_comment_mark)==0 )
+		{
+			continue;
 		}
 
 		string::size_type pos = line.find(dlmt);
@@ -342,11 +354,16 @@ string	get_a_chr(const char*& p) {
 	if ( *p=='\0' )
 		return	"";
 	char	buf[3];
-	if ( _ismbblead(p[0]) ) {
+	if ( p[0] == static_cast<char>(0xffU) ) { //“à•”‚Å“Áê‚È•\Œ»‚Æ‚µ‚Ä‚¢‚é
+		buf[0]=*p++;
+		buf[1]='\0';
+	}
+	else if ( _ismbblead(p[0]) ) {
 		buf[0]=*p++;
 		buf[1]=*p++;
 		buf[2]='\0';
-	} else {
+	}
+	else {
 		buf[0]=*p++;
 		buf[1]='\0';
 	}
@@ -420,6 +437,7 @@ string	decode(const string& in) {
 }
 */
 
+//SJIS”»’è‚Â‚«strstr
 const char*	strstr_hz(const char* target, const char* find) {
 	int	len=strlen(find);
 	const char* p=target;
@@ -434,15 +452,60 @@ const char*	strstr_hz(const char* target, const char* find) {
 	return	NULL;
 }
 
-bool	compare_tail(const string& str, const string& tail) {
-	const int diff = str.size()-tail.size();
-	if ( diff < 0 )
-		return	false;
-	return	tail.compare(str.c_str()+diff)==0;
+//STLƒXƒ^ƒCƒ‹‚Ìstrstr_hz
+std::string::size_type find_hz(const char* str, const char* target, std::string::size_type find_pos)
+{
+	const char *p = strstr_hz(str+find_pos, target);
+	if ( p == NULL ) {
+		return string::npos;
+	}
+	else {
+		p -= find_pos;
+		return p - str;
+	}
 }
 
+bool	compare_head_s(const char* str, const char* head)
+{
+	if ( ! str || ! head || str[0] == 0 || head[0] == 0 ) { return false; }
+	return strncmp(str, head, strlen(head))==0;
+}
 
+bool	compare_head_nocase_s(const char* str, const char* head)
+{
+	if ( ! str || ! head || str[0] == 0 || head[0] == 0 ) { return false; }
+#ifdef _MSC_VER 
+	return _strnicmp(str, head, strlen(head))==0;
+#else
+	return strnicmp(str, head, strlen(head))==0;
+#endif
+}
 
+bool	compare_tail_s(const char* str, const char* tail)
+{
+	size_t len = strlen(tail);
+	size_t str_len = strlen(str);
+
+	const int diff = str_len-len;
+	if ( diff < 0 ) {
+		return	false;
+	}
+
+	return strcmp(str+diff, tail)==0;
+}
+
+bool	compare_tail_nocase_s(const char* str, const char* tail)
+{
+	size_t len = strlen(tail);
+	size_t str_len = strlen(str);
+
+	const int diff = str_len-len;
+	if ( diff < 0 ) {
+		return	false;
+	}
+
+	return stricmp(str+diff, tail)==0;
+}
 
 inline int charactor_to_binary(char c) {
 	if ( c>='0' && c<='9' )
@@ -581,8 +644,8 @@ bool	inimap::load(const string& iFileName) {
 			str = line.str();
 		}
 
-		if ( str.empty() ) {
-			// ‹ós
+		if ( str.empty() || str[0]==';' ) {
+			// ‹ós‚Ü‚½‚ÍƒRƒƒ“ƒgs
 		}
 		else if ( str.size()>=2 && str[0]=='[' ) {
 			// ƒZƒNƒVƒ‡ƒ“–¼‚Ìİ’ès [SectionName]
@@ -695,22 +758,6 @@ bool	inivec::load(const string& iFileName) {
 	return	true;
 }
 
-
-#include	<cstdlib>
-void	randomize(int seed) {
-	srand(static_cast<unsigned>(seed));
-}
-#ifndef POSIX
-int		random() {
-	int	r = rand();	// 15
-	r <<= 15;
-	r |= rand();	// 30
-	r <<= 15;
-	r |= rand();	// 45
-	return	r;
-}
-#endif
-
 // printfŒİŠ·‚Å•¶š—ñ‚ğ¶¬‚µAstringŒ^‚Å•Ô‚·B
 #include	<cstdarg>
 string	stringf(const char* iFormat, ...) {
@@ -725,4 +772,46 @@ string	stringf(const char* iFormat, ...) {
 	va_end(argptr);
 	return	buf;
 }
+
+string	zen2han(const char *s)
+{
+	string str(s);
+
+	static const char	before[] = "‚O‚P‚Q‚R‚S‚T‚U‚V‚W‚X‚`‚a‚b‚c‚d‚e‚f‚g‚h‚i‚j‚k‚l‚m‚n‚o‚p‚q‚r‚s‚t‚u‚v‚w‚x‚y‚‚‚‚ƒ‚„‚…‚†‚‡‚ˆ‚‰‚Š‚‹‚Œ‚‚‚‚‚‘‚’‚“‚”‚•‚–‚—‚˜‚™‚š|{";
+	static const char	after[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-+";
+	char	buf1[3]="\0\0", buf2[2]="\0";
+	for (int n=0 ; n<sizeof(after) ; ++n) {
+		buf1[0]=before[n*2];
+		buf1[1]=before[n*2+1];
+		buf2[0]=after[n];
+		replace(str, buf1, buf2);
+	}
+
+	return	str;
+}
+
+string int2zen(int i) {
+	static const char*	ary[] = {"‚O","‚P","‚Q","‚R","‚S","‚T","‚U","‚V","‚W","‚X"};
+	
+	string	zen;
+	if ( i<0 ) {
+		zen += "|";
+		i = -i; // INT_MIN‚Ì‚Í•„†‚ª”½“]‚µ‚È‚¢
+	}
+	string	han=itos(i);
+	const char* p=han.c_str();
+	if ( i==INT_MIN )
+		++p;
+	for (  ; *p != '\0' ; ++p ) {
+		assert(*p>='0' && *p<='9');
+		zen += ary[*p-'0'];
+	}
+	return	zen;
+}
+
+int zen2int(const char *str)
+{
+	return stoi(zen2han(str));
+}
+
 

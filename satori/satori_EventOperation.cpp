@@ -1,4 +1,17 @@
 #include	"satori.h"
+#include <algorithm>
+
+#include "random.h"
+#include "posix_utils.h"
+
+//////////DEBUG/////////////////////////
+#ifdef _WINDOWS
+#ifdef _DEBUG
+#include <crtdbg.h>
+#define new new( _NORMAL_BLOCK, __FILE__, __LINE__)
+#endif
+#endif
+////////////////////////////////////////
 
 inline bool	is_empty_script(const string& script) {
 	for ( const char* p = script.c_str() ; *p!='\0' ; ) {
@@ -29,22 +42,44 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 	// スクリプト文字列
 	string	script="";
 
+
+	bool talking = false;
+	if ( mIsStatusHeaderExist ) {
+		strmap::const_iterator it = mRequestMap.find("Status");
+		if ( it != mRequestMap.end() ) {
+			if ( strstr(it->second.c_str(),"talking") ) {
+				talking = true;
+			}
+		}
+	}
+	
+
 	// システムが欲しい情報を拾っておく
 	if ( iEvent=="OnSecondChange" || iEvent=="OnMinuteChange" ) {
 
 #ifndef POSIX
-		if ( characters_hwnd[0]==NULL && updateGhostsInfo() && !ghosts_info.empty() ) {
+		if ( characters_hwnd.empty() && updateGhostsInfo() && !ghosts_info.empty() ) {
 			sender << "■FMOからhwndを取得しました。" << endl;
-			characters_hwnd[0] = (HWND)(stoi( (ghosts_info[0])["hwnd"] )); 
+
+			strmap &ghost = ghosts_info[0];
+			strmap::const_iterator it = ghost.find("hwnd");
+			if ( it != ghost.end() ) {
+				characters_hwnd[0] = (HWND)(stoi(it->second));
+			}
+			it = ghost.find("kerohwnd");
+			if ( it != ghost.end() ) {
+				characters_hwnd[1] = (HWND)(stoi(it->second));
+			}
 		}
 
-		//if ( !is_single_monitor && characters_hwnd[0]!=NULL ) {
 		if ( is_single_monitor ) {
 			//sender << "■シングルモニタです。見切れの独自判定を行いません。" << endl;
 		}
-		else if ( characters_hwnd[0]==NULL ) {
+		else if ( ! mIsMateria ) {
+			//sender << "■Materia以外では見切れの判定を処理系に任せます。" << endl;
+		}
+		else if ( characters_hwnd.empty() ) {
 			//sender << "■マルチモニタですが、hwndが取得できていないため、見切れの独自判定を行いません。" << endl;
-
 		}
 		else {
 		//	sender << "■見切れ判定処理" << endl;
@@ -61,6 +96,34 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 			sender << "■見切れ判定結果: " << mReferences[1] << endl;*/
 		}
 #endif
+		//ホールド
+		if ( mousedown_reference_array.size() > 0 && mousedown_exec_complete == false ) {
+			if ( (posix_get_current_tick() - mousedown_time) > 1000 ) {
+				string	str = mousedown_reference_array[3]+mousedown_reference_array[4]+"ホールド";
+
+				mousedown_exec_complete = true;
+				if ( talks.is_exist(str) ) {
+					script=GetSentence(str);
+				}
+			}
+		}
+
+		//ホールド終了
+		if ( ! talking ) {
+			if ( mousedown_secchange_delay_exec ) {
+				if ( (posix_get_current_tick() - mousedown_secchange_delay_time) > 1000 ) {
+					mousedown_secchange_delay_exec = false;
+					mousedown_secchange_delay_time = 0;
+
+					string	str = mousedown_reference_array[3]+mousedown_reference_array[4]+"ホールド終了";
+					if ( talks.is_exist(str) ) {
+						script=GetSentence(str);
+					}
+					mousedown_reference_array.clear();
+					mousedown_time = 0;
+				}
+			}
+		}
 
 		mikire_flag = stoi(mReferences[1])!=0;
 		kasanari_flag = stoi(mReferences[2])!=0;
@@ -75,6 +138,8 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 		mReferences[0] = itos(stoi(mReferences[0])+1);
 	}
 
+	bool hold_complete_exec = false;
+
 	if ( (iEvent=="OnBoot" || iEvent=="OnGhostChanged") && !is_empty_script(on_loaded_script) ) {
 		script = on_loaded_script;
 		on_loaded_script = "";
@@ -85,20 +150,64 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 		if ( !is_empty_script(on_unloading_script) )
 			script = on_unloading_script;
 	}
+	else if ( iEvent=="OnMouseDragStart" ) {
+		if ( ! mousedown_exec_complete ) {
+			mousedown_reference_array.clear();
+			mousedown_time = 0;
+		}
+	}
+	else if ( iEvent=="OnMouseDragEnd" ) {
+		if ( mousedown_exec_complete ) {
+			hold_complete_exec = true;
+		}
+	}
+	else if ( iEvent=="OnMouseDown" ) {
+		if ( atoi(mReferences[5].c_str()) == 0 ) {
+			//ホールド計測開始
+			mousedown_reference_array = mReferences;
+			mousedown_time = posix_get_current_tick();
+			mousedown_exec_complete = false;
+		}
+	}
+	else if ( iEvent=="OnMouseUp" ) {
+		if ( mousedown_exec_complete ) {
+			hold_complete_exec = true;
+		}
+		else {
+			mousedown_reference_array.clear();
+			mousedown_time = 0;
+		}
+	}
+
+	if ( hold_complete_exec ) {
+		if ( talking ) {
+			mousedown_secchange_delay_exec = true;
+			mousedown_secchange_delay_time = posix_get_current_tick();
+		}
+		else {
+			string	str = mousedown_reference_array[3]+mousedown_reference_array[4]+"ホールド終了";
+			if ( talks.is_exist(str) ) {
+				script=GetSentence(str);
+			}
+			mousedown_reference_array.clear();
+			mousedown_time = 0;
+		}
+	}
 
 	if ( !script.empty() ) {
 	}
-	else if ( iEvent=="OnAnchorSelect" && anchors.find(mReferences[0])!=anchors.end() ) {
+	else if ( iEvent=="OnAnchorSelect" && find(anchors.begin(),anchors.end(),mReferences[0])!=anchors.end() ) {
 		// OnAnchorSelectがきたとき、ref0がdicAnchorの文名の場合は
 		// イベントが定義されている場合でもシステム側を優先する。
 		script=GetSentence(mReferences[0]);
 	}
+	// ************** イベントコール *****************************************************
 	else if ( FindEventTalk(iEvent) ) {	// この際、互換イベントへの置換も同時に行われる
 		// 定義されているならそれを優先する。
 		script=GetSentence(iEvent);
 
-		// これより以下は、イベントが定義されていない場合のデフォルト処理である。
 	}
+	// ************** これより以下は、イベントが定義されていない場合のデフォルト処理 **************
 	else if ( iEvent=="OnMouseDoubleClick" )
 	{
 		static strvec v;
@@ -107,22 +216,45 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 			v.push_back("＞（Ｒ３）（Ｒ４）つつかれ");
 			v.push_back("（）");
 		}
-		script = SentenceToSakuraScript(v);
+		script = SentenceToSakuraScriptExec(v);
 	}
 	else if ( iEvent=="OnMouseMove" ) {
 		nade_valid_time = nade_valid_time_initializer; // なでセッションの有効期限を更新
 		int&	cur_nede_count = nade_count[ mReferences[4] ];
 		if ( ++cur_nede_count >= nade_sensitivity ) {
 #ifdef POSIX
-		        int ret = 0;
+		    int ret = 0;
 #else
-		        LRESULT	ret = 0;
-			if ( !insert_nade_talk_at_other_talk && updateGhostsInfo() ) {
-				string	hwnd_str = (ghosts_info[0])["hwnd"];
-				HWND	hwnd = (HWND)(stoi(hwnd_str));
-				if ( hwnd!=NULL ) {
-					UINT	WM_SAKURAAPI = RegisterWindowMessage("Sakura");
-					ret = ::SendMessage(hwnd, WM_SAKURAAPI, 140, 0);
+		    LRESULT	ret = 0;
+
+			if ( mIsStatusHeaderExist ) {
+				strmap::const_iterator it = mRequestMap.find("Status");
+				if ( it != mRequestMap.end() && (!insert_nade_talk_at_other_talk) ) {
+					if ( strstr(it->second.c_str(),"talking") ) {
+						ret = 1;
+					}
+					if ( strstr(it->second.c_str(),"induction") ) {
+						ret = 1;
+					}
+					if ( strstr(it->second.c_str(),"passive") ) {
+						ret = 1;
+					}
+					if ( strstr(it->second.c_str(),"timecritical") ) {
+						ret = 1;
+					}
+				}
+			}
+			else {
+				if ( !insert_nade_talk_at_other_talk && updateGhostsInfo() ) {
+					string	hwnd_str = (ghosts_info[0])["hwnd"];
+					HWND	hwnd = (HWND)(stoi(hwnd_str));
+					if ( hwnd!=NULL ) {
+						UINT	WM_SAKURAAPI = RegisterWindowMessage("Sakura");
+						DWORD ret_dword = 0;
+						if ( ::SendMessageTimeout(hwnd, WM_SAKURAAPI, 140, 0,SMTO_BLOCK|SMTO_ABORTIFHUNG,5000,&ret_dword) ) { //GETGHOSTSTATE
+							ret = ret_dword;
+						}
+					}
 				}
 			}
 #endif
@@ -161,14 +293,47 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 	}
 	else if ( iEvent=="OnRecommendsiteChoice" )
 	{
-		if ( GetRecommendsiteSentence("sakura.recommendsites", script) )
-			NULL;
-		else if ( GetRecommendsiteSentence("kero.recommendsites", script) )
-			NULL;
-		else if ( GetRecommendsiteSentence("sakura.portalsites", script) )
-			NULL;
-		else
-			script="";
+		if ( mReferences[3] != "" && mReferences[4] != "" ) {
+			if ( mReferences[3] == "portal" ) {
+				if ( ! GetRecommendsiteSentence("sakura.portalsites", script) ) {
+					script = "";
+				}
+			}
+			else {
+				bool found = false;
+				if ( zen2int(mReferences[4]) == 0 ) {
+					if ( GetRecommendsiteSentence("sakura.recommendsites", script) ) {
+						found = true;
+					}
+				}
+				else if ( zen2int(mReferences[4]) == 1 ) {
+					if ( GetRecommendsiteSentence("kero.recommendsites", script) ) {
+						found = true;
+					}
+				}
+
+				if ( ! found ) {
+					string req = string("char") + mReferences[4] + ".recommendsites";
+					if ( ! GetRecommendsiteSentence(req.c_str(), script) ) {
+						script = "";
+					}
+				}
+			}
+		}
+		else {
+			if ( GetRecommendsiteSentence("sakura.recommendsites", script) ) {
+				NULL;
+			}
+			else if ( GetRecommendsiteSentence("kero.recommendsites", script) ) {
+				NULL;
+			}
+			else if ( GetRecommendsiteSentence("sakura.portalsites", script) ) {
+				NULL;
+			}
+			else {
+				script="";
+			}
+		}
 	}
 	else if ( iEvent=="OnCommunicate" ) {	// 話し掛けられた
 
@@ -211,31 +376,46 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 		// 自動セーブ
 		if ( mAutoSaveInterval > 0 ) {
 			if ( --mAutoSaveCurrentCount <= 0 ) {
-				this->Save(false);
+				if ( is_dic_loaded ) {
+					this->Save(false);
+				}
 				mAutoSaveCurrentCount = mAutoSaveInterval;
 			}
 		}
 	}
 
 	diet_script(script);
+
+	bool is_rnd_talk = false;
+
 	if ( is_empty_script(script) && can_talk_flag && iEvent=="OnSecondChange" ) {
 
 		// タイマ予約発話
-		for (strintmap::iterator i=timer.begin();i!=timer.end();++i) {
+		for (strintmap::const_iterator i=timer.begin();i!=timer.end();++i) {
 			if ( i->second < 1 ) {
-				string	var_name = i->first + "タイマ";
+				//GetSentence実行後にtimerのイテレータは状態変化しているかもしれないので
+				//いったん保存しておく
+				string  timer_name = i->first;
+				string	var_name = timer_name + "タイマ";
+
 				sender << var_name << "が発動。" << endl;
-				script=GetSentence(i->first);
-				timer.erase(i);
+
+				reset_speaked_status();
+				script=GetSentence(timer_name);
+				
+				timer.erase(timer_name);
 				variables.erase(var_name);
-				if ( !is_empty_script(script) )
+
+				if ( !is_empty_script(script) ) {
 					diet_script(script);
+				}
+				is_rnd_talk = true;
 				break;
 			}
 		}
 
 		// 自動発話
-		if ( is_empty_script(script) && !mikire_flag ) {
+		if ( is_empty_script(script) && (mikire_flag==false || is_call_ontalk_at_mikire==true)) {
 			if ( nade_valid_time>0 )
 				if ( --nade_valid_time == 0 )
 					nade_count.clear();
@@ -245,8 +425,12 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 			if ( talk_interval>0 && --talk_interval_count<0 ) {
 				string	iEvent="OnTalk";
 				FindEventTalk(iEvent);
+
+				reset_speaked_status();
 				script=GetSentence(iEvent);
+
 				diet_script(script);
+				is_rnd_talk = true;
 			}
 		}
 	}
@@ -255,13 +439,13 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 		return	204;	// 喋らない
 
 	// scriptへの付与処理
-	if ( is_speaked_anybody() ) {
-		script = surface_restore_string() + append_at_talk_start + script + append_at_talk_end;
+	if ( is_speaked_anybody() || is_rnd_talk ) {
+		script = append_at_talk_start + surface_restore_string() + script + append_at_talk_end;
 
 		// 喋りカウント初期化
 		int	dist = int(talk_interval*(talk_interval_random/100.0));
 		talk_interval_count = ( dist==0 ) ? talk_interval : 
-			(talk_interval-dist)+(random()%(dist*2));
+			(talk_interval-dist)+(random(dist*2));
 	}
 	script += ( iEvent=="OnClose" || iEvent=="終了" ) ? "\\-" : "\\e";
 
@@ -293,7 +477,7 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 
 //		string	iEvent="OnTalk";
 //		FindEventTalk(iEvent);
-//		script = surface_restore_string() + append_at_talk_start + GetSentence(iEvent) + append_at_talk_end + "\\e";
+//		script = append_at_talk_start + surface_restore_string() + GetSentence(iEvent) + append_at_talk_end + "\\e";
 
 
 
@@ -306,9 +490,10 @@ bool	Satori::TalkSearch(const string& iSentence, string& oScript, bool iAndMode)
 		return false;
 	}
 
-	oScript = SentenceToSakuraScript(*talk);
+	oScript = SentenceToSakuraScriptExec(*talk);
 	sender << oScript << endl;
 	return	true;
 }
+
 
 

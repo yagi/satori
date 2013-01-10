@@ -2,6 +2,7 @@
 
 #include	<fstream>
 #include	<cassert>
+#include <algorithm>
 
 #include	"../_/Utilities.h"
 #include	"satori_load_dict.h"
@@ -11,6 +12,14 @@
 #  include "stltool.h"
 #endif
 
+//////////DEBUG/////////////////////////
+#ifdef _WINDOWS
+#ifdef _DEBUG
+#include <crtdbg.h>
+#define new new( _NORMAL_BLOCK, __FILE__, __LINE__)
+#endif
+#endif
+////////////////////////////////////////
 
 struct satori_unit
 {
@@ -181,78 +190,81 @@ static bool pre_process(
 	return true;
 }
 
-string	Satori::SentenceToSakuraScript_with_PreProcess(const strvec& i_vec)
+string	Satori::SentenceToSakuraScriptExec_with_PreProcess(const strvec& i_vec)
 {
 	strvec vec;
 	pre_process(i_vec, vec, m_escaper, replace_before_dic);
-	return SentenceToSakuraScript(vec);
+	return SentenceToSakuraScriptExec(vec);
 }
 
 // .txtと.satの両方がくるので、新しい方だけを読み込む。
-static bool select_dict_and_load_to_vector(const string& iFileName, strvec& oFileBody)
+static bool select_dict_and_load_to_vector(const string& iFileName, strvec& oFileBody, bool warnFileName)
 {
 	string txtfile = set_extention(iFileName, "txt");
 	string satfile = set_extention(iFileName, "sat");
 
+	string realext = get_extention(iFileName);
 
-	// ２ファイルの日時を比較する。file1が新しければ正の値、file2が新しければ負の値、等しければ0を返す。
-	// ファイルが存在しない場合、存在しない方が古いと判定する。
-#ifdef POSIX
-	int CompareTime(const string& file1, const string& file2);
-#else
-	int	CompareTime(LPCSTR szL, LPCSTR szR);
-#endif
+	bool FileExist(const string& f);
+	bool decodeMe = false;
+	string file;
 
-	if ( CompareTime(txtfile.c_str(), satfile.c_str())>=0 )
-	{
-		// .txtの方が新しかった
-		if ( get_extention(iFileName) == "sat" )
-		{
-			sender << "  " << satfile << "is older file.";
-			return false;
+	//SAT / TXT
+	if ( realext == "sat" ) {
+		if ( FileExist(satfile.c_str()) ) {
+			file = satfile;
+			decodeMe = true;
 		}
-	
-		sender << "  loading " << get_file_name(txtfile);
-		if ( !strvec_from_file(oFileBody, txtfile) )
-		{
-			sender << "... failed." << endl;
-			return	false;
+		else {
+			if ( warnFileName ) {
+				sender << "  " << satfile << "is not exist.";
+			}
+			file = txtfile;
 		}
 	}
-	else
+	else {
+		if ( FileExist(txtfile.c_str()) ) {
+			file = txtfile;
+		}
+		else {
+			if ( warnFileName ) {
+				sender << "  " << txtfile << "is not exist.";
+			}
+			file = satfile;
+			decodeMe = true;
+		}
+	}
+
+	sender << "  loading " << get_file_name(file);
+	if ( !strvec_from_file(oFileBody, file) )
 	{
-		// .satの方が新しかった
-		if ( get_extention(iFileName) == "txt" )
-		{
-			sender << "  " << txtfile << "is older file.";
-			return false;
-		}
+		sender << "... failed." << endl;
+		return	false;
+	}
 
-		sender << "  loading " << get_file_name(satfile);
-		if ( !strvec_from_file(oFileBody, satfile) )
-		{
-			sender << "... failed." << endl;
-			return	false;
-		}
-
+	if ( decodeMe ) {
 		// 暗号化を解除
 		for ( strvec::iterator it=oFileBody.begin() ; it!=oFileBody.end() ; ++it )
 		{
 			*it = decode( decode(*it) );
 		}
 	}
+
 	return true;
 }
 
-
+static bool satori_anchor_compare(const string &lhs,const string &rhs)
+{
+	return lhs.size() > rhs.size();
+}
 
 // 辞書を読み込む。
-bool	Satori::LoadDictionary(const string& iFileName) 
+bool Satori::LoadDictionary(const string& iFileName,bool warnFileName) 
 {
 	// ファイルからvectorへ読み込む。
 	// その際、同ファイル名で拡張子が.txtと.satのファイルの日付を比較し、新しい方だけを採用する。
 	strvec	file_vec;
-	if ( !select_dict_and_load_to_vector(iFileName, file_vec) )
+	if ( !select_dict_and_load_to_vector(iFileName, file_vec, warnFileName) )
 	{
 		return false;
 	}
@@ -263,8 +275,7 @@ bool	Satori::LoadDictionary(const string& iFileName)
 	if ( false == pre_process(file_vec, preprocessed_vec, m_escaper, replace_before_dic) )
 	{
 #ifdef POSIX
-	        // MessageBoxなんて無い！
-	        std::cerr <<
+	     errsender <<
 		    "syntax error - SATORI : " << iFileName << std::endl <<
 		    std::endl <<
 		    "There are some mismatched parenthesis." << std::endl <<
@@ -273,14 +284,12 @@ bool	Satori::LoadDictionary(const string& iFileName)
 		    "If you want to display parenthesis independently," << std::endl <<
 		    "use \"phi\" symbol to escape it." << std::endl;
 #else
-		::MessageBox(NULL, 
-			(string() + iFileName + "\n\n"
+		errsender << iFileName + "\n\n"
 			"\n"
 			"カッコの対応関係が正しくない部分があります。" "\n"
 			"辞書は正しく読み込まれていません。" "\n"
 			"\n"
-			"カッコを単独で表示する場合は　φ（　と記述してください。").c_str(),
-			"syntax error - SATORI", MB_OK|MB_SYSTEMMODAL);
+			"カッコを単独で表示する場合は　φ（　と記述してください。" << std::endl;
 #endif
 	}
 
@@ -305,12 +314,18 @@ bool	Satori::LoadDictionary(const string& iFileName)
 	        while (i->body.size() > 0 && i->body[i->body.size()-1].length() == 0) {
 		        i->body.pop_back();
 		}
+
+		m_escaper.unescape(i->name);
 		
 		if ( i->typemark == "＊" )
 		{
 			// トークの場合
-			if ( is_for_anchor ) { anchors.insert(i->name); }
+			if ( is_for_anchor ) { anchors.push_back(i->name); }
 			talks.add_element(i->name, i->body, i->condition);
+
+#ifdef _DEBUG
+			sender << "＊" << i->name << " " << i->condition << endl;
+#endif
 		}
 		else
 		{
@@ -320,8 +335,16 @@ bool	Satori::LoadDictionary(const string& iFileName)
 			{
 				words.add_element(i->name, *j, i->condition);
 			}
+
+#ifdef _DEBUG
+			sender << "＠" << i->name << " " << i->condition << endl;
+#endif
 		}
 
+	}
+
+	if ( is_for_anchor ) {
+		sort(anchors.begin(),anchors.end(),satori_anchor_compare);
 	}
 
 	//sender << "　　　talk:" << talks.count_all() << ", word:" << words.count_all() << endl;
@@ -334,7 +357,7 @@ bool	Satori::LoadDictionary(const string& iFileName)
 #  include <dirent.h>
 #endif
 
-void list_files(string i_path, list<string>& o_files)
+void list_files(string i_path, vector<string>& o_files)
 {
 	unify_dir_char(i_path); // \\と/を環境に応じて適切な方に統一
 #ifdef POSIX
@@ -352,7 +375,8 @@ void list_files(string i_path, list<string>& o_files)
 #if defined(__WINDOWS__) || defined(__CYGWIN__)
 	    string fname(ent->d_name);
 #else
-	    string fname(ent->d_name, ent->d_namlen);
+//	    string fname(ent->d_name, ent->d_namlen);
+	    string fname(ent->d_name);
 #endif
 		o_files.push_back(fname);
 	}
@@ -378,22 +402,26 @@ void list_files(string i_path, list<string>& o_files)
 
 
 
-bool Satori::LoadDicFolder(const string& i_base_folder)
+int Satori::LoadDicFolder(const string& i_base_folder)
 {
 	sender << "LoadDicFolder(" << i_base_folder << ")" << endl;
-	list<string> files;
+	vector<string> files;
 	list_files(i_base_folder, files);
+
+	int count = 0;
 	
-	for (list<string>::const_iterator it=files.begin() ; it!=files.end() ; ++it)
+	for (vector<string>::const_iterator it=files.begin() ; it!=files.end() ; ++it)
 	{
 		const int len = it->size();
 		if ( len < 7 ) { continue; } // dic.txtが最短ファイル名
-		if ( it->substr(0,3) != "dic" ) { continue; }
-		if ( it->substr(len-4) != ".txt" && it->substr(len-4) != ".sat" ) { continue; }
+		if ( it->compare(0,3,"dic") != 0 ) { continue; }
+		if ( it->compare(len-4,4,".txt") != 0 && it->compare(len-4,4,".sat") != 0 ) { continue; }
 
-		LoadDictionary(i_base_folder + *it);
+		if ( LoadDictionary(i_base_folder + *it) ) {
+			++count;
+		}
 	}
 
 	sender << "ok." << endl;
-	return	true;
+	return count;
 }

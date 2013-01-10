@@ -1,5 +1,9 @@
 #include "SakuraCS.h"
 
+#pragma once
+#ifndef SAKURA_DLL_HOST_INCLUDED
+#define SAKURA_DLL_HOST_INCLUDED
+
 // 「dllとして呼ばれる側」を作る際に使用するクラス。
 // これを継承したクラスを定義し、m_dllに唯一の実体を代入する。
 class SakuraDLLHost : public SakuraCS
@@ -14,6 +18,8 @@ public:
 
 	virtual bool	load(const string& i_base_folder) { return true; }
 	virtual bool	unload() { return true; }
+
+	virtual string  getversionlist(const string& i_base_folder) { return ""; }
 
 	// 素のリクエスト文字列を受け取り、素のレスポンス文字列を返す。
 	// 内部で↓を呼ぶ。
@@ -32,3 +38,6 @@ public:
 		string& o_protocol_version,
 		strpairvec& o_data)=0;
 };
+
+#endif //SAKURA_DLL_HOST_INCLUDED
+

@@ -1,6 +1,15 @@
 #include "SaoriClient.h"
 #include "../_/stltool.h"
 
+//////////DEBUG/////////////////////////
+#ifdef _WINDOWS
+#ifdef _DEBUG
+#include <crtdbg.h>
+#define new new( _NORMAL_BLOCK, __FILE__, __LINE__)
+#endif
+#endif
+////////////////////////////////////////
+
 bool SaoriClient::load(
 	const string& i_sender,
 	const string& i_charset,
@@ -21,12 +30,15 @@ int SaoriClient::request(
 
 	strpairvec data;
 
+	data.push_back( strpair("Charset", "Shift_JIS" ) );
+	data.push_back( strpair("Sender", "SATORI" ) );
+	data.push_back( strpair("SecurityLevel", (i_is_secure ? "Local" : "External") ) );
+
 	int idx=0;
 	for ( vector<string>::const_iterator i=i_argument.begin() ; i!=i_argument.end() ; ++i,++idx )
 	{
 		data.push_back( strpair(string("Argument")+itos(idx), *i) );
 	}
-	data.push_back( strpair("SecurityLevel", (i_is_secure ? "Local" : "External") ) );
 
 	//---------------------
 	// リクエスト実行
@@ -36,17 +48,20 @@ int SaoriClient::request(
 
 	//---------------------
 	// 返答を解析
+	// 注意！Valueヘッダが存在しないときは、S?系システム変数を温存するためにデータを上書きしないこと！
+	// 他ゴーストの互換性問題に注意（o_value）
 
 	string result;
+	int maxValueSize = -1;
 
 	for ( strpairvec::const_iterator i = r_data.begin() ; i != r_data.end() ; ++i )
 	{
 		const string& key = i->first;
 		const string& value = i->second;
 
-		if ( compare_head(key, "Value") && isdigit(key[strlen("Value")]) )
+		if ( compare_head(key, "Value") && isdigit(key[const_strlen("Value")]) )
 		{
-			const int	pos = atoi(key.c_str() + strlen("Value"));
+			const int	pos = atoi(key.c_str() + const_strlen("Value"));
 			if ( pos<0 || pos>65536 )
 			{
 				continue;
@@ -57,11 +72,19 @@ int SaoriClient::request(
 				o_value.resize(pos+1);
 			}
 			o_value[pos] = value;
+			if ( maxValueSize < pos ) {
+				maxValueSize = pos;
+			}
 		}
 		else if ( key=="Result" )
 		{
 			o_result = value;
 		}
+	}
+
+	//Valueヘッダがなかった場合のみ切り詰める
+	if ( maxValueSize >= 0 ) {
+		o_value.resize(maxValueSize+1);
 	}
 
 	return return_code;

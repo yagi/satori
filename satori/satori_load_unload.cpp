@@ -14,13 +14,25 @@
 
 #include	<fstream>
 #include	<cassert>
-#include	<ctime>	// for randomize
+#include      <locale.h>
 
 #include	"../_/Utilities.h"
+#include     "../_/random.h"
+
+#include "posix_utils.h"
 
 #ifdef POSIX
-#  include      "posix_utils.h"
+#include <unistd.h>
 #endif
+
+//////////DEBUG/////////////////////////
+#ifdef _WINDOWS
+#ifdef _DEBUG
+#include <crtdbg.h>
+#define new new( _NORMAL_BLOCK, __FILE__, __LINE__)
+#endif
+#endif
+////////////////////////////////////////
 
 
 //---------------------------------------------------------------------------
@@ -30,8 +42,11 @@ BOOL CALLBACK MonitorEnumFunc(HMONITOR hMonitor,HDC hdc,LPRECT rect,LPARAM lPara
     MONITORINFOEX MonitorInfoEx;
     MonitorInfoEx.cbSize=sizeof(MonitorInfoEx);
 
-	BOOL (WINAPI* pGetMonitorInfo)(HMONITOR,LPMONITORINFO);
-	(FARPROC&)pGetMonitorInfo = ::GetProcAddress(::LoadLibrary("user32.dll"), "GetMonitorInfoA");
+	static BOOL (WINAPI* pGetMonitorInfo)(HMONITOR,LPMONITORINFO) = NULL;
+	if ( ! pGetMonitorInfo ) {
+		(FARPROC&)pGetMonitorInfo = ::GetProcAddress(::GetModuleHandle("user32.dll"), "GetMonitorInfoA");
+	}
+
 	if ( pGetMonitorInfo==NULL )
 		return	FALSE;
 	if ( !(*pGetMonitorInfo)(hMonitor,&MonitorInfoEx) ) {
@@ -39,11 +54,20 @@ BOOL CALLBACK MonitorEnumFunc(HMONITOR hMonitor,HDC hdc,LPRECT rect,LPARAM lPara
         return FALSE;
     }
 
-	sender << "モニタ: " << MonitorInfoEx.szDevice << " / (" << 
-		rect->left << "," << rect->top << "," << rect->right << "," << rect->bottom << ") / " <<
-		((MonitorInfoEx.dwFlags==MONITORINFOF_PRIMARY) ? "primary" : "extra") << endl;
 
-	RECT&	max_screen_rect = *((RECT*)lParam);
+	RECT* pRect = ((RECT*)lParam);
+
+	if ( MonitorInfoEx.dwFlags & MONITORINFOF_PRIMARY ) {
+		pRect[1] = *rect;
+		sender << "モニタ: " << MonitorInfoEx.szDevice << " / (" << 
+			rect->left << "," << rect->top << "," << rect->right << "," << rect->bottom << ") / primary" << endl;
+	}
+	else {
+		sender << "モニタ: " << MonitorInfoEx.szDevice << " / (" << 
+			rect->left << "," << rect->top << "," << rect->right << "," << rect->bottom << ") / extra" << endl;
+	}
+
+	RECT&	max_screen_rect = pRect[0];
 	if ( rect->left < max_screen_rect.left )
 		max_screen_rect.left = rect->left;
 	if ( rect->top < max_screen_rect.top )
@@ -60,24 +84,37 @@ BOOL CALLBACK MonitorEnumFunc(HMONITOR hMonitor,HDC hdc,LPRECT rect,LPARAM lPara
 //---------------------------------------------------------------------------
 
 #ifdef	_DEBUG
-	//memory leakの検出(下の3行をこの順番で記述してください。)
-	#define _CRTDBG_MAP_ALLOC
-	#include <stdlib.h>
-	#include <crtdbg.h>
+#ifdef _WINDOWS
+
+class DummyDbgSetFlagClass {
+public:
+	DummyDbgSetFlagClass(void) {
+		int tmpFlag = _CrtSetDbgFlag( _CRTDBG_REPORT_FLAG );
+		tmpFlag |= _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF;
+		tmpFlag &= ~_CRTDBG_CHECK_CRT_DF;
+		_CrtSetDbgFlag( tmpFlag );
+	}
+};
+DummyDbgSetFlagClass dummy;
+
+#endif // _WINDOWS
 #endif // _DEBUG
+
+
+string	Satori::getversionlist(const string& iBaseFolder)
+{
+	return "SHIORI/3.0\1SAORI/1.0";
+}
+
 
 bool	Satori::load(const string& iBaseFolder)
 {
 	Sender::initialize();
 
-#ifdef	_DEBUG
-	int tmpDbgFlag;
-	tmpDbgFlag = _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG);
-	tmpDbgFlag |= _CRTDBG_ALLOC_MEM_DF;
-	tmpDbgFlag |= _CRTDBG_LEAK_CHECK_DF;
-	_CrtSetDbgFlag(tmpDbgFlag);
-#endif // _DEBUG
-
+	setlocale(LC_ALL, "Japanese");
+#ifdef _WINDOWS
+	_setmbcp(_MB_CP_LOCALE);
+#endif
 
 	mBaseFolder = iBaseFolder;
 	sender << "■SATORI::Load on " << mBaseFolder << "" << endl;
@@ -86,6 +123,11 @@ bool	Satori::load(const string& iBaseFolder)
 	// 「/」で終わっていなければ付ける。
 	if (mBaseFolder[mBaseFolder.size() - 1] != '/') {
 	    mBaseFolder += '/';
+	}
+#else
+	// 「\」で終わっていなければ付ける。
+	if (mBaseFolder[mBaseFolder.size() - 1] != '\\') {
+	    mBaseFolder += '\\';
 	}
 #endif
 
@@ -132,13 +174,18 @@ bool	Satori::load(const string& iBaseFolder)
 		is_single_monitor = true;
 	} else {
 		BOOL (WINAPI* pEnumDisplayMonitors)(HDC,LPRECT,MONITORENUMPROC,LPARAM);
-		(FARPROC&)pEnumDisplayMonitors = ::GetProcAddress(::LoadLibrary("user32.dll"), "EnumDisplayMonitors");
+		(FARPROC&)pEnumDisplayMonitors = ::GetProcAddress(::GetModuleHandle("user32.dll"), "EnumDisplayMonitors");
 		if ( pEnumDisplayMonitors==NULL ) {
 			is_single_monitor = true;
 		}
 		else {
-			(*pEnumDisplayMonitors)(NULL,NULL,(MONITORENUMPROC)MonitorEnumFunc,(LPARAM)(&max_screen_rect));
-			::GetWindowRect(::GetDesktopWindow(), &desktop_rect);
+			RECT rectData[2];
+			memset(rectData,0,sizeof(rectData));
+			(*pEnumDisplayMonitors)(NULL,NULL,(MONITORENUMPROC)MonitorEnumFunc,(LPARAM)(rectData));
+
+			max_screen_rect = rectData[0];
+			desktop_rect = rectData[1];
+
 			RECT*	rect;
 			rect = &desktop_rect;
 			sender << "プライマリデスクトップ: (" << 
@@ -167,10 +214,10 @@ bool	Satori::load(const string& iBaseFolder)
 		// 置換辞書に追加
 		j = m.find("popular-name");
 		if ( j != m.end() && j->second.size()>0 ) 
-			replace_before_dic[j->second + "："] = string() + "\\p[" + i->first + "]";
+			replace_before_dic[j->second + "："] = string("\xff\x01") + zen2han(i->first); //0xff0x01はあとで変換
 		j = m.find("initial-letter");
 		if ( j != m.end() && j->second.size()>0 ) 
-			replace_before_dic[j->second + "："] = string() + "\\p[" + i->first + "]";
+			replace_before_dic[j->second + "："] = string("\xff\x01") + zen2han(i->first); //0xff0x01はあとで変換
 
 		j = m.find("base-surface");
 		if ( j != m.end() && j->second.size()>0 )
@@ -181,13 +228,13 @@ bool	Satori::load(const string& iBaseFolder)
 	//	cout << j->first << ": " << j->second << endl;
 
 	// ランダマイズ
-	randomize(time(NULL));
+	randomize();
 
 
 	//------------------------------------------
 
 	// コンフィグ読み込み
-	LoadDictionary(mBaseFolder + "satori_conf.txt");
+	LoadDictionary(mBaseFolder + "satori_conf.txt", false);
 
 	// 変数初期化実行
 	GetSentence("初期化");	
@@ -196,13 +243,13 @@ bool	Satori::load(const string& iBaseFolder)
 	Family<Word>* f = words.get_family("SAORI");
 	if ( f != NULL )
 	{
-		list<const Word*> els;
+		vector<const Word*> els;
 		f->get_elements_pointers(els);
 
-		mShioriPlugins.load(mBaseFolder);
-		for ( list<const Word*>::const_iterator i=els.begin(); i!=els.end() ; ++i)
+		mShioriPlugins->load(mBaseFolder);
+		for ( vector<const Word*>::const_iterator i=els.begin(); i!=els.end() ; ++i)
 		{
-			if ( (*i)->size()>0 && !mShioriPlugins.load_a_plugin(**i) )
+			if ( (*i)->size()>0 && !mShioriPlugins->load_a_plugin(**i) )
 			{
 				sender << "SAORI読み込み中にエラーが発生: " << **i << endl;
 			}
@@ -214,15 +261,32 @@ bool	Satori::load(const string& iBaseFolder)
 	//------------------------------------------
 
 	// セーブデータ読み込み
-	LoadDictionary(mBaseFolder + "satori_savedata.txt");
+	bool oldConf = fEncodeSavedata;
 
+	bool loadResult = LoadDictionary(mBaseFolder + "satori_savedata." + (fEncodeSavedata?"sat":"txt"), false);
 	GetSentence("セーブデータ");
+	bool execResult = talks.get_family("セーブデータ") != NULL;
+
+	if ( ! loadResult || ! execResult ) {
+		loadResult = LoadDictionary(mBaseFolder + "satori_savebackup." + (fEncodeSavedata?"sat":"txt"), false);
+		GetSentence("セーブデータ");
+		execResult = talks.get_family("セーブデータ") != NULL;
+	}
+
 	talks.clear();
 	
 	reload_flag = false;
 
-	tick_count_total = stoi(variables["ゴースト起動時間累計(ms)"]);
-	variables["起動回数"] = itos( stoi(variables["起動回数"])+1 );
+	if ( variables.find("ゴースト起動時間累計秒") != variables.end() ) {
+		sec_count_total = zen2int(variables["ゴースト起動時間累計秒"]);
+	}
+	else if ( variables.find("ゴースト起動時間累計ミリ秒") != variables.end() ) {
+		sec_count_total = zen2int(variables["ゴースト起動時間累計ミリ秒"]) / 1000;
+	}
+	else {
+		sec_count_total = zen2int(variables["ゴースト起動時間累計(ms)"]) / 1000;
+	}
+	variables["起動回数"] = itos( zen2int(variables["起動回数"])+1 );
 
 	// 「単語の追加」で登録された単語を覚えておく
 	const map< string, Family<Word> >& m = words.compatible();
@@ -230,26 +294,31 @@ bool	Satori::load(const string& iBaseFolder)
 	{
 		vector<const Word*> v;
 		it->second.get_elements_pointers(v);
-		mAppendedWords[it->first] = v;
+		for ( vector<const Word*>::const_iterator itx = v.begin() ; itx < v.end() ; ++itx ) {
+			mAppendedWords[it->first].push_back(**itx);
+		}
 	}
 
 	//------------------------------------------
 
 	// 指定フォルダの辞書を読み込み
+	int loadcount = 0;
 	strvec::iterator i = dic_folder.begin();
 	if ( i==dic_folder.end() ) {
-		LoadDicFolder(mBaseFolder);	// ルートフォルダの辞書
+		loadcount += LoadDicFolder(mBaseFolder);	// ルートフォルダの辞書
 	} else {
 		for ( ; i!=dic_folder.end() ; ++i )
-			LoadDicFolder(mBaseFolder + *i +"\\");	// サブフォルダの辞書
+			loadcount += LoadDicFolder(mBaseFolder + *i + DIR_CHAR);	// サブフォルダの辞書
 	}
+
+	is_dic_loaded = loadcount != 0;
 
 	//------------------------------------------
 
 	secure_flag = true;
 
 	system_variable_operation("単語群「＊」の重複回避", "有効、トーク中");
-	system_variable_operation("トーク「＊」の重複回避", "有効");
+	system_variable_operation("文「＊」の重複回避", "有効");
 	//system_variable_operation("単語群「季節の食べ物」の重複回避", "有効、トーク中");
 
 	GetSentence("OnSatoriLoad");
@@ -272,20 +341,23 @@ bool	Satori::Save(bool isOnUnload) {
 	// メンバ変数を里々変数化
 	for (map<int, string>::iterator it=reserved_talk.begin(); it!=reserved_talk.end() ; ++it)
 		variables[string("次から")+itos(it->first)+"回目のトーク"] = it->second;
+
 	// 起動時間累計を設定
-#ifdef POSIX
+	variables["ゴースト起動時間累計秒"] =
+	    itos(posix_get_current_sec() - sec_count_at_load + sec_count_total);
+	// (互換用)
+	variables["ゴースト起動時間累計ミリ秒"] =
+	    itos((posix_get_current_sec() - sec_count_at_load + sec_count_total)*1000);
 	variables["ゴースト起動時間累計(ms)"] =
-	    itos(posix_get_current_millis() - tick_count_at_load + tick_count_total);
-#else
-	variables["ゴースト起動時間累計(ms)"] = itos( ::GetTickCount() - tick_count_at_load + tick_count_total );
-#endif
+	    itos((posix_get_current_sec() - sec_count_at_load + sec_count_total)*1000);
 
 	if ( isOnUnload ) {
 		secure_flag = true;
 		(void)GetSentence("OnSatoriUnload");
 	}
 
-	string	theFullPath = mBaseFolder + "satori_savedata." + (fEncodeSavedata?"sat":"txt");
+	string	theFullPath = mBaseFolder + "satori_savedata.tmp";
+
 	ofstream	out(theFullPath.c_str());
 	bool	temp = Sender::is_validated();
 	Sender::validate();
@@ -296,27 +368,71 @@ bool	Satori::Save(bool isOnUnload) {
 		sender << "failed." << endl;
 		return	false;
 	}
+
 	string	line = "＊セーブデータ";
+	string  data;
+
 	out << ENCODE(line) << endl;
 	for (strmap::const_iterator it=variables.begin() ; it!=variables.end() ; ++it) {
-		string	zen2han(string str);
 		string	str = zen2han(it->first);
-		if ( str[0]=='S' && aredigits(str.c_str()+1) )
+		if ( str[0]=='S' && aredigits(str.c_str()+1) ) {
 			continue;
-		string	line = string("＄")+it->first+"\t"+it->second; // 変数を保存
+		}
+		if ( str == "今回は喋らない" || str == "今回は会話時サーフェス戻し" || str == "今回は会話時サーフィス戻し" || str == "今回は自動アンカー" ) {
+			continue;
+		}
+
+		data = it->second;
+		
+		replace(data,"φ","φφ");
+		replace(data,"（","φ（");
+		replace(data,"）","φ）");
+		m_escaper.unescape_for_dic(data);
+
+		string	line = string("＄")+it->first+"\t"+data; // 変数を保存
 		out << ENCODE(line) << endl;
 	}
 
-	for ( map<string, vector<const Word*> >::const_iterator i=mAppendedWords.begin() ; i!=mAppendedWords.end() ; ++i )
+	for ( map<string, vector<Word> >::const_iterator i=mAppendedWords.begin() ; i!=mAppendedWords.end() ; ++i )
 	{
-		out << endl << ENCODE( string("＠") + i->first ) << endl;
-		for ( vector<const Word*>::const_iterator j=i->second.begin() ; j!=i->second.end() ; ++j )
-		{
-			out << ENCODE(**j) << endl;
+		if ( ! i->second.empty() ) {
+			out << endl << ENCODE( string("＠") + i->first ) << endl;
+			for ( vector<Word>::const_iterator j=i->second.begin() ; j!=i->second.end() ; ++j )
+			{
+				out << ENCODE( *j ) << endl;
+			}
 		}
 	}
 
+	out.flush();
+	out.close();
+
 	sender << "ok." << endl;
+
+	//バックアップ
+	string	realFullPath = mBaseFolder + "satori_savedata." + (fEncodeSavedata?"sat":"txt");
+	string	realFullPathBackup = mBaseFolder + "satori_savebackup." + (fEncodeSavedata?"sat":"txt");
+#ifdef POSIX
+	unlink(realFullPathBackup.c_str());
+	rename(realFullPath.c_str(),realFullPathBackup.c_str());
+	rename(theFullPath.c_str(),realFullPath.c_str());
+#else
+	::DeleteFile(realFullPathBackup.c_str());
+	::MoveFile(realFullPath.c_str(),realFullPathBackup.c_str());
+	::MoveFile(theFullPath.c_str(),realFullPath.c_str());
+#endif
+
+	//いらないほうを消す
+	string	delFullPath = mBaseFolder + "satori_savedata." + (fEncodeSavedata?"txt":"sat");
+	string	delFullPathBackup = mBaseFolder + "satori_savebackup." + (fEncodeSavedata?"txt":"sat");
+#ifdef POSIX
+	unlink(delFullPath.c_str());
+	unlink(delFullPathBackup.c_str());
+#else
+	::DeleteFile(delFullPath.c_str());
+	::DeleteFile(delFullPathBackup.c_str());
+#endif
+
 	return	true;
 }
 
@@ -324,12 +440,16 @@ bool	Satori::Save(bool isOnUnload) {
 bool	Satori::unload() {
 
 	// ファイルに保存
-	this->Save(true);
+	if ( is_dic_loaded ) {
+		this->Save(true);
+	}
+	is_dic_loaded = false;
 
 	// プラグイン解放
-	mShioriPlugins.unload();
+	mShioriPlugins->unload();
 
 	sender << "■SATORI::Unload ---------------------" << endl;
 	return	true;
 }
+
 

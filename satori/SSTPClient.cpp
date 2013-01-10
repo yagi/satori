@@ -1,5 +1,6 @@
 #include "../_/stltool.h"
 #include "SSTPClient.h"
+#include "SakuraFMO.h"
 
 // ƒCƒxƒ“ƒg‚ð‘—‚é“z‚Æ‚©
 // http://futaba.sakura.st/sstp.html#notify11
@@ -12,18 +13,19 @@ bool direct_sstp(
 	const string& i_client_name,
 	HWND i_client_window)
 {
-	map<string, strmap>	fmo;
-	if ( !readSakuraFMO(fmo) )
+	SakuraFMO	fmo;
+	if ( !fmo.update() )
 	{
 		return	false;
 	}
 
 	string request = string() +
 		"SEND SSTP/1.1" + CRLF +
-		"Script: " + i_script + CRLF +
 		"Sender: " + i_client_name + CRLF +
 		"HWnd: " + itos((int)i_client_window) + CRLF +
 		"Charset: Shift_JIS" + CRLF +
+		"Script: " + i_script + CRLF +
+		"Option: notranslate" + CRLF +
 		CRLF;
 
 	COPYDATASTRUCT cds;
@@ -38,8 +40,9 @@ bool direct_sstp(
 		{
 			continue;
 		}
-
-		::SendMessage(host_window, WM_COPYDATA, (WPARAM)i_client_window, (LPARAM)&cds);
+		
+		DWORD ret_dword = 0;
+		::SendMessageTimeout(host_window, WM_COPYDATA, (WPARAM)i_client_window, (LPARAM)&cds,SMTO_BLOCK|SMTO_ABORTIFHUNG,5000,&ret_dword);
 	}
 	return true;
 }

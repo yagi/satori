@@ -5,12 +5,23 @@
 #  include	<mbctype.h>
 #endif
 
+//////////DEBUG/////////////////////////
+#ifdef _WINDOWS
+#ifdef _DEBUG
+#include <crtdbg.h>
+#define new new( _NORMAL_BLOCK, __FILE__, __LINE__)
+#endif
+#endif
+////////////////////////////////////////
+
+
 bool	Satori::Translate(string& ioScript) {
 
 	if ( ioScript.empty() )
 		return	false;
 
 	const bool is_OnTranslate = (mRequestID=="OnTranslate");
+	const bool is_AnchorEnable = mRequestID.empty() || (mRequestID.compare(0,2,"On") == 0); //reqidがempty＝さとりてcall
 
 	// さくらスクリプトとそれ以外を分割して処理を加える
 	vector<string>	vec;
@@ -64,7 +75,10 @@ bool	Satori::Translate(string& ioScript) {
 						vec.push_back("");	// 
 					string	label=vec[0], id=vec[1];
 
-					if ( false == compare_head(id, "On") )
+					if ( false == compare_head(id, "On") &&
+						 false == compare_head(id, "http://") &&
+						 false == compare_head(id, "https://") 
+						)
 					{ 
 						// Onで始まるものはOnChoiceSelectを経由されないため、対象外とする
 
@@ -126,24 +140,50 @@ bool	Satori::Translate(string& ioScript) {
 		return	false;	// 中身の無いスクリプト（実行してもしなくても一緒）と判断。
 
 	ioScript="";
+	string repstr;
 
 	for (vector<string>::iterator i=vec.begin() ; i!=vec.end() ; ++i) {
 		if ( i->at(0)!='\\' && i->at(0)!='%' ) {
 			// さくらスクリプト以外の文への処理
 
 			// アンカー挿入
-			if ( !is_OnTranslate )
-				for ( set<string>::iterator j=anchors.begin() ; j!=anchors.end() ; ++j )
-					replace(*i, *j, string("\\_a[")+*j+"]"+*j+"\\_a");
+			if ( auto_anchor_enable_onetime ) { //onetimeとの比較だけでよい
+				if ( is_AnchorEnable && !is_OnTranslate ) {
+					string::size_type n = i->size();
+					for ( string::size_type c=0 ; c<n ; ++c ) {
+						for ( vector<string>::iterator j=anchors.begin() ; j!=anchors.end() ; ++j ) {
+							if ( n - c >= j->size() ) {
+								if ( i->compare(c,j->size(),*j) == 0 ) {
+									repstr = "\\_a[";
+									repstr += *j;
+									repstr += "]";
+									repstr += *j;
+									repstr += "\\_a";
+
+									i->replace(c,j->size(),repstr);
+									c += repstr.size();
+									n = i->size();
+									break;
+								}
+							}
+						}
+						if ( c < n && _ismbblead(i->at(c)) ) {
+							++c;
+						}
+					}
+				}
+			}
 		}
 		ioScript += *i;
 	}
 
 
 	// 事後置き換え辞書を適用
-	if ( !is_OnTranslate )
-		for ( strmap::iterator di=replace_after_dic.begin() ; di!=replace_after_dic.end() ; ++di )
+	if ( !is_OnTranslate ) {
+		for ( strmap::iterator di=replace_after_dic.begin() ; di!=replace_after_dic.end() ; ++di ) {
 			replace(ioScript, di->first, di->second);
+		}
+	}
 
 	diet_script(ioScript);	// ラストダイエット
 

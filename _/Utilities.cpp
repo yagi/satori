@@ -1,6 +1,14 @@
 #include	"Utilities.h"
 #include	<stdio.h>
 
+//////////DEBUG/////////////////////////
+#ifdef _WINDOWS
+#ifdef _DEBUG
+#include <crtdbg.h>
+#define new new( _NORMAL_BLOCK, __FILE__, __LINE__)
+#endif
+#endif
+////////////////////////////////////////
 
 /*char*	FindFinalChar(char* start, char c) {
 	return	const_cast<char*>(FindFinalChar(start,c));

@@ -10,13 +10,13 @@ MKDEP = mkdep
 # これはdarwin用の設定で、libsatori.bundleを生成する。
 # LinuxやBSDならpostfixを.soにする必要がある筈。
 DYLIB_NAME_PREFIX = lib
-DYLIB_NAME_POSTFIX = .bundle
+DYLIB_NAME_POSTFIX = .so
 
 # 追加するフラグ。
 # CXXFLAGSは必要無ければ空でも良いが、LDFLAGSはdlopen可能なライブラリを
 # 作れる設定にしなければならない。darwinなら-bundle、LinuxやBSDなら-shared。
-CXXFLAGS = -O3
-LDFLAGS = -bundle
+CXXFLAGS = -O3 -Wall
+LDFLAGS = -shared
 
 
 ################## これより下は弄らなくてもコンパイル出来ます ##################
@@ -26,6 +26,7 @@ LIBSATORI_OBJ = \
 	../_/Utilities.o \
 	../_/calc.o \
 	../_/stltool.o \
+	../_/mt19937ar.o \
 	SakuraCS.o \
 	SakuraClient.o \
 	SakuraDLLClient.o \
@@ -41,17 +42,20 @@ LIBSATORI_OBJ = \
 	satori_load_unload.o \
 	satori_sentence.o \
 	satori_tool.o \
-	shiori_plugin.o
+	shiori_plugin.o \
+	$(NULL)
 LIBSSU_OBJ = \
 	../_/Sender.o \
 	../_/Utilities.o \
 	../_/calc.o \
 	../_/calc_float.o \
 	../_/stltool.o \
+	../_/mt19937ar.o \
 	SakuraCS.o \
 	SakuraDLLHost.o \
 	SaoriHost.o \
-	ssu.o
+	ssu.o \
+	$(NULL)
 
 LIBSATORI = $(DYLIB_NAME_PREFIX)satori$(DYLIB_NAME_POSTFIX)
 LIBSSU = $(DYLIB_NAME_PREFIX)ssu$(DYLIB_NAME_POSTFIX)
@@ -76,4 +80,18 @@ $(LIBSSU): $(LIBSSU_OBJ)
 .cpp.o:
 	$(CXX) $(CXXFLAGS) $(CXXFLAGS_ADD) -o $@ -c $<
 
-.PHONY: all clean depend
+DESTDIR = satori-src
+dist:
+	rm -rf $(DESTDIR)
+	mkdir -p $(DESTDIR)
+	cp -f ../satori_license.txt $(DESTDIR)
+	mkdir -p $(DESTDIR)/_
+	cp -f ../_/*.cpp ../_/*.h $(DESTDIR)/_
+	mkdir -p $(DESTDIR)/satori
+	cp -f *.cpp *.h makefile.* *.html *.dsp *.dsw $(DESTDIR)/satori
+	mkdir -p $(DESTDIR)/satori/test
+	cp -f test/*.txt test/*.ini $(DESTDIR)/satori/test
+	zip -r $(DESTDIR).zip $(DESTDIR)
+	rm -rf $(DESTDIR)
+
+.PHONY: all clean depend dist

@@ -1,4 +1,4 @@
-#include	"Satori.h"
+#include	"satori.h"
 #include	<iostream>
 using namespace std;
 
@@ -17,7 +17,8 @@ public:
 	~Ghost() {
 		mSatori.unload();
 	}
-	string	request(string iEvent) {
+	string	request(string iCommandLine)
+	{
 		return ((SakuraDLLHost*)(&mSatori))->request( string() +
 			"GET SHIORI/3.0\r\n"
 			"ID: " + iEvent + "\r\n"
@@ -91,8 +92,7 @@ A foo(A i_a)
 
 	//cout << ghost.request("get") << endl;
 	//cout << ghost.request("‚¤‚ñ‚±") << endl;
-/*	cout << typeid(Ghost).name() << endl;
-	
+/*	
 	cout << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << endl;
 	cout << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << endl;
 	cout << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << endl;

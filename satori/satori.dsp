@@ -43,7 +43,7 @@ RSC=rc.exe
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /MT /W3 /GX /O2 /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "SATORI_EXPORTS" /YX /FD /c
-# ADD CPP /nologo /MT /W3 /GX /O2 /D "NDEBUG" /D "WIN32" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "SATORI_DLL" /FR /YX /FD /c
+# ADD CPP /nologo /MT /W3 /GX /O2 /Oy- /Ob2 /I "..\_" /D "_WINDOWS" /D "_USRDLL" /D "SATORI_DLL" /D WINVER=0x400 /D "WIN32" /D "NDEBUG" /D "_MBCS" /D "STRICT" /FD /Zm800 /GA /QI0f /c
 # ADD BASE MTL /nologo /D "NDEBUG" /mktyplib203 /win32
 # ADD MTL /nologo /D "NDEBUG" /mktyplib203 /win32
 # ADD BASE RSC /l 0x411 /d "NDEBUG"
@@ -53,7 +53,7 @@ BSC32=bscmake.exe
 # ADD BSC32 /nologo
 LINK32=link.exe
 # ADD BASE LINK32 kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /nologo /dll /machine:I386
-# ADD LINK32 user32.lib /nologo /dll /machine:I386 /out:"..\..\ukgk\ghost\Post_and_Komainu\ghost\master\satori.dll"
+# ADD LINK32 user32.lib /nologo /dll /machine:I386
 # SUBTRACT LINK32 /pdb:none
 
 !ELSEIF  "$(CFG)" == "satori - Win32 Debug"
@@ -70,7 +70,7 @@ LINK32=link.exe
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /MTd /W3 /Gm /GX /ZI /Od /D "WIN32" /D "_DEBUG" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "SATORI_EXPORTS" /YX /FD /GZ /c
-# ADD CPP /nologo /MTd /W3 /Gm /GX /ZI /Od /D "_DEBUG" /D "WIN32" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "SATORI_DLL" /FR /YX /FD /GZ /c
+# ADD CPP /nologo /MTd /W3 /Gm /GX /ZI /Od /I "..\_" /D "_WINDOWS" /D "_USRDLL" /D "SATORI_DLL" /D "WIN32" /D "_DEBUG" /D "_MBCS" /D "STRICT" /FR /FD /Zm800 /GZ /c
 # ADD BASE MTL /nologo /D "_DEBUG" /mktyplib203 /win32
 # ADD MTL /nologo /D "_DEBUG" /mktyplib203 /win32
 # ADD BASE RSC /l 0x411 /d "_DEBUG"
@@ -80,7 +80,7 @@ BSC32=bscmake.exe
 # ADD BSC32 /nologo
 LINK32=link.exe
 # ADD BASE LINK32 kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /nologo /dll /debug /machine:I386 /pdbtype:sept
-# ADD LINK32 user32.lib /nologo /dll /debug /machine:I386 /out:"..\..\ukgk\ghost\Post_and_Komainu\ghost\master\satori.dll" /pdbtype:sept
+# ADD LINK32 user32.lib /nologo /dll /debug /machine:I386 /out:"D:\ssp_src_set\ssp\ghost\1st-innerport\ghost\master\satori.dll" /pdbtype:sept
 # SUBTRACT LINK32 /pdb:none
 
 !ENDIF 
@@ -229,6 +229,10 @@ SOURCE=.\SakuraDLLHost.h
 # End Source File
 # Begin Source File
 
+SOURCE=.\SakuraFMO.cpp
+# End Source File
+# Begin Source File
+
 SOURCE=.\SaoriClient.cpp
 # End Source File
 # Begin Source File
@@ -259,6 +263,22 @@ SOURCE=..\_\calc.cpp
 # Begin Source File
 
 SOURCE=..\_\FMO.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\_\mt19937ar.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\_\mt19937ar.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\_\random.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\_\random.h
 # End Source File
 # Begin Source File
 

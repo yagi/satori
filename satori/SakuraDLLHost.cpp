@@ -6,7 +6,23 @@
 #endif
 #include "SakuraDLLHost.h"
 #include <iostream>
-#include "../_/sender.h"
+#include "../_/Sender.h"
+
+//////////DEBUG/////////////////////////
+#ifdef _WINDOWS
+#ifdef _DEBUG
+#include <crtdbg.h>
+#define new new( _NORMAL_BLOCK, __FILE__, __LINE__)
+#endif
+#endif
+////////////////////////////////////////
+
+#ifndef POSIX
+BOOL WINAPI DllMain(HINSTANCE hinstDLL,DWORD fdwReason,LPVOID lpvReserved)
+{
+	return TRUE;
+}
+#endif
 
 #ifdef POSIX
 extern "C" int load(char* i_data, long i_data_len) {
@@ -19,7 +35,7 @@ extern "C" int load(char* i_data, long i_data_len) {
 #else
 extern "C" __declspec(dllexport) BOOL __cdecl load(HGLOBAL i_data, long i_data_len)
 {
-	string the_base_folder((char*)i_data, i_data_len);
+	string the_base_folder((char*)::GlobalLock(i_data), i_data_len);
 	::GlobalFree(i_data);
 	sender << the_base_folder << endl;
 	return SakuraDLLHost::I()->load(the_base_folder);
@@ -54,11 +70,45 @@ extern "C" char* request(char* i_data, long* io_data_len) {
 extern "C" __declspec(dllexport) HGLOBAL __cdecl request(HGLOBAL i_data, long* io_data_len)
 {
 	// グローバルメモリを受けとる
-	string the_req_str((char*)i_data, *io_data_len);
+	string the_req_str((char*)::GlobalLock(i_data), *io_data_len);
 	::GlobalFree(i_data);
 
 	// リクエスト実行
 	string	the_resp_str = SakuraDLLHost::I()->request(the_req_str);
+
+	// グローバルメモリで返す
+	*io_data_len = the_resp_str.size();
+	HGLOBAL the_return_data = ::GlobalAlloc(GMEM_FIXED, *io_data_len);
+	::CopyMemory(the_return_data, the_resp_str.c_str(), *io_data_len);
+	return	the_return_data;
+}
+#endif
+
+
+#ifdef POSIX
+extern "C" char* getversionlist(HGLOBAL i_data, long* io_data_len) {
+	// グローバルメモリを受けとる
+	string the_req_str((char*)::GlobalLock(i_data), *io_data_len);
+	::GlobalFree(i_data);
+
+    // リクエスト実行
+    string the_resp_str = SakuraDLLHost::I()->getversionlist(the_req_str);
+
+    // グローバルメモリで返す
+    *io_data_len = the_resp_str.size();
+    char* the_return_data = static_cast<char*>(malloc(*io_data_len));
+    memcpy(the_return_data, the_resp_str.c_str(), *io_data_len);
+    return the_return_data;
+}
+#else
+extern "C" __declspec(dllexport) HGLOBAL __cdecl getversionlist(HGLOBAL i_data, long* io_data_len)
+{
+	// グローバルメモリを受けとる
+	string the_req_str((char*)::GlobalLock(i_data), *io_data_len);
+	::GlobalFree(i_data);
+
+	// リクエスト実行
+	string	the_resp_str = SakuraDLLHost::I()->getversionlist(the_req_str);
 
 	// グローバルメモリで返す
 	*io_data_len = the_resp_str.size();
@@ -134,10 +184,10 @@ string SakuraDLLHost::request(const string& i_request_string)
 
 	// Charsetが無ければ付ける。
 	bool charset_exists = false;
-	for (strpairvec::iterator ite = r_data.begin(); ite != r_data.end(); ite++) {
+	for (strpairvec::const_iterator ite = r_data.begin(); ite != r_data.end(); ite++) {
 	    if (ite->first == "Charset") {
-		charset_exists = true;
-		break;
+			charset_exists = true;
+			break;
 	    }
 	}
 	if (!charset_exists) {
@@ -153,6 +203,7 @@ string SakuraDLLHost::request(const string& i_request_string)
 	//sender << "--- Response ---" << endl << response << endl;
 	return response;
 }
+
 
 
 

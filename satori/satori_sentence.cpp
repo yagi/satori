@@ -8,9 +8,20 @@
 #  include	<mbctype.h>
 #endif
 
+#include "random.h"
+
+//////////DEBUG/////////////////////////
+#ifdef _WINDOWS
+#ifdef _DEBUG
+#include <crtdbg.h>
+#define new new( _NORMAL_BLOCK, __FILE__, __LINE__)
+#endif
+#endif
+////////////////////////////////////////
+
 void	diet_script(string& ioScript) {
-	replace(ioScript, "\\h", "\\0");
-	replace(ioScript, "\\u", "\\1");
+	//replace(ioScript, "\\h", "\\0");
+	//replace(ioScript, "\\u", "\\1");
 	erase(ioScript, "\\_w[0]");
 	int	count;
 	do {
@@ -28,7 +39,8 @@ void	diet_script(string& ioScript) {
 	} while (count>0);
 
 	while ( compare_tail(ioScript, "\\n") )
-		ioScript.assign(ioScript.substr(0, ioScript.size()-2));
+		ioScript.erase(ioScript.size()-2,2);
+		//ioScript.assign(ioScript.substr(0, ioScript.size()-2));
 }
 
 bool	Satori::FindEventTalk(string& ioevent) {
@@ -67,52 +79,165 @@ bool	Satori::FindEventTalk(string& ioevent) {
 
 
 
-string	Satori::GetSentence(const string& name) {
-	string	accumulater, script, sentence=name;
-	while ( GetSentence(sentence, script) )
-		accumulater += script;
-	accumulater += script;
-	return	accumulater;
+string	Satori::GetSentence(const string& name)
+{
+	string script, sentence=name;
+
+	/*++m_nest_count;
+
+	if ( m_nest_limit > 0 && m_nest_count > m_nest_limit ) {
+		sender << "呼び出し回数超過：" << name << endl;
+		--m_nest_count;
+		return string("（" + name + "）");
+	}*/
+
+	// トークをさくらスクリプトに変換
+	const Talk *pTalk = GetSentenceInternal(sentence);
+	if ( pTalk ) {
+		Sender::nest_object smo(2); 
+		script = SentenceToSakuraScriptExec(*pTalk);
+		sender << "return: " << script << "" << endl;
+	}
+	return	script;
 }
 
 
 
 // 自動挿入ウェイト
-#define	character_wait_clear	\
-	if ( mRequestID == "OnHeadlinesense.OnFind" ) { characters = 0;	} \
-	else if( characters > 0 ) { \
-		result += string("\\_w[") + itos( int(characters*basewait*rate_of_auto_insert_wait/100) ) + "]"; characters=0; \
-	} else NULL
+// 2=一般 1=里々 0=無効
+#define	character_wait_clear(wait_quantity)	\
+	if ( mRequestID == "OnHeadlinesense.OnFind" ) { chars_spoken = 0;	} \
+	else if( chars_spoken > 0 ) { \
+		if ( ! is_quick_section ) { \
+			if ( type_of_auto_insert_wait >= 2 ) { \
+				next_wait_value += (50*3+random(100))*(wait_quantity)*rate_of_auto_insert_wait/100; \
+			} \
+			else if ( type_of_auto_insert_wait == 1 ) { \
+				next_wait_value += chars_spoken*basewait*rate_of_auto_insert_wait/100; \
+			} \
+		} \
+		chars_spoken = 0; \
+	}
 
-string	Satori::SentenceToSakuraScript(const strvec& vec) {
+// 実際の挿入処理
+#define character_wait_exec \
+	if ( next_wait_value ) { \
+		result += "\\_w[" + itos(next_wait_value) + "]"; \
+		next_wait_value = 0; \
+	}
 
+
+string Satori::SentenceToSakuraScriptExec(const Talk& vec)
+{
+	string jump_to;
+	string result;
+	ptrdiff_t ip = 0;
+	const Talk* pVec = &vec;
+	bool comAndMode = mRequestID!="OnCommunicate";
+
+	//実行環境初期化
+	string allresult = "\\1";
+
+	question_num = 0;	// 選択肢番号
+	chars_spoken = 0;	// 喋った字数
+	next_wait_value = 0; // ウェイト処理
+
+	int jumpcount = 0;
+
+	speaker = 1;	// 本体は 0 うにゅうは 1
+	bool jump_inited = true;
+
+	//return禁止
+	kakko_replace_history.push(strvec()); // カッコの前方参照用
+
+	while ( TRUE ) {
+		if ( speaker != 1 && ! jump_inited ) {
+			allresult += "\\1";
+			speaker = 1;	// 本体は 0 うにゅうは 1
+			jump_inited = true;
+		}
+
+		result = "";
+		jump_to = "";
+
+		kakko_replace_history.top().clear();
+		int resp = SentenceToSakuraScriptInternal(*pVec,result,jump_to,ip);
+
+		allresult += result;
+
+		//resp == 0で全実行終了
+		if ( ! resp ) {
+			break;
+		}
+
+		//それ以外はどこかにジャンプを示す
+		if ( resp == 1 ) {
+			string jump = jump_to;
+			m_escaper.unescape(jump);
+
+			const Talk* pTR = GetSentenceInternal(jump);
+			if ( ! pTR ) {
+				sender << "＞" << jump_to << " not found." << endl;
+			}
+			else {
+				pVec = pTR;
+				ip = 0;
+				jump_inited = false;
+			}
+		}
+		else if ( resp == 2 ) {
+			string jump = jump_to;
+			m_escaper.unescape(jump);
+
+			const Talk* pTR = talks.communicate_search(jump, comAndMode);
+			if ( ! pTR ) {
+				sender << "≫" << jump_to << " not found." << endl;
+			}
+			else {
+				pVec = pTR;
+				ip = 0;
+				jump_inited = false;
+			}
+		}
+		++jumpcount;
+
+		if ( m_jump_limit > 0 && jumpcount >= m_jump_limit ) {
+			sender << "ジャンプ回数超過" << endl;
+			break;
+		}
+	}
+
+	kakko_replace_history.pop(1);
+	//return禁止終了
+
+	return allresult;
+}
+
+int Satori::SentenceToSakuraScriptInternal(const strvec &vec,string &result,string &jump_to,ptrdiff_t &ip)
+{
 	// 再帰管理
 	static	int nest_count=0;
 	++nest_count;
-	//DBG(sender << "enter SentenceToSakuraScript, nest-count: " << nest_count << ", vector_size: " << vec.size() << endl);
+	//DBG(sender << "enter SentenceToSakuraScriptInternal, nest-count: " << nest_count << ", vector_size: " << vec.size() << endl);
 
-
-	if ( nest_count==1 ) {
-		question_num=0;	// 選択肢番号
-		speaked_speaker.clear(); // 少しでも喋ったかどうか
-		surface_changed_before_speak.clear(); // 会話前にサーフェス切り換え指示があったか
-		characters = 0;	// 喋った字数
+	if ( m_nest_limit > 0 && nest_count > m_nest_limit ) {
+		sender << "呼び出し回数超過" << endl;
+		--nest_count;
+		return 0;
 	}
-	kakko_replace_history.push(strvec()); // カッコの前方参照用
 
 	static const int basewait=3;
-	string	result;
-
-	result = "\\1";
-	speaker = 1;	// 本体は 0 うにゅうは 1
 
 	strvec::const_iterator it = vec.begin();
+	std::advance(it,ip);
+
 	for ( ; it != vec.end() ; ++it) {
 		const char*	p = it->c_str();
 		//DBG(sender << nest_count << " '" << p << "'" << endl);
 
 		if ( it==vec.begin() && strncmp(p, "→", 2)==0 ) {
 			p+=2;
+			updateGhostsInfo();	// ゴースト情報を更新
 
 			if ( ghosts_info.size()>=2 ) {	// そもそも自分以外にゴーストはいるのか。
 				string	temp = p;
@@ -123,11 +248,14 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 					if ( compare_head(temp, name) ) {// 相手を特定
 						mCommunicateFor = name;
 						p += mCommunicateFor.size();
+						break;
 					}
 				}
+
+				
 				if ( i==ghosts_info.end() ) {	// 特定しなかった場合
 					// ランダム
-					//int n = (random()%(ghosts_info.size()-1))+1;
+					//int n = random(ghosts_info.size()-1))+1;
 					//assert( n>=1 && n < ghosts_info.size());
 					mCommunicateFor = (ghosts_info[1])["name"];
 
@@ -141,66 +269,68 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 			if ( strlen(p)>1023 )
 				continue;
 			char	buf[1024];
-			strcpy(buf, p+2);
+			strncpy(buf, p+2, sizeof(buf) / sizeof(buf[0]));
 
 			char*	choiced = buf;
-			char*	id = strstr(buf, "\t"); // 選択肢ラベルとジャンプ先の区切り
+			char*	id = (char*)strstr_hz(buf, "\t"); // 選択肢ラベルとジャンプ先の区切り
+
+			result += append_at_choice_start;
 			if ( id == NULL ) {
 				string	str=UnKakko(choiced);
 				//result += string("\\q")+itos(question_num++)+"["+str+"]["+str+"]";
-				result += string("\\q")+"["+str+","+str+"]\\n";
+				result += "\\q["+str+","+str+"]";
 			} else {
 				*id++='\0';
 				while ( *id=='\t' ) ++id; // 選択肢ラベルとジャンプ先の区切り
 				//result += string("\\q")+itos(question_num++)+"["+UnKakko(id)+"]["+UnKakko(choiced)+"]";
-				result += "\\q["+UnKakko(choiced)+","+UnKakko(id)+"]\\n";
+				result += "\\q["+UnKakko(choiced)+","+UnKakko(id)+"]";
 			}
+			result += append_at_choice_end;
+
 			continue;
 		}
 
 		// ちょっと微妙な存在意義。
 		if ( strncmp(p, "\\s", 2)==0 ) {	
-			if ( !is_speaked(speaker) )
-				surface_changed_before_speak.insert(speaker);
+			if ( !is_speaked(speaker) ) {
+				if ( surface_changed_before_speak.find(speaker) == surface_changed_before_speak.end() ) {
+					surface_changed_before_speak.insert(map<int,bool>::value_type(speaker,is_speaked_anybody()) );
+				}
+			}
 		}
 
 		// ジャンプ
 		if ( strncmp(p, "＞", 2)==0 || strncmp(p, "≫", 2)==0 ) {
 			strvec	words;
-			split(p+2, "\t", words); // ジャンプ先とジャンプ条件の区切り
-			string	jump_to="";
-			if ( words.size()>=1 ) {
-				jump_to = UnKakko(words[0].c_str());
-				if ( words.size()>=2 ) {
-					string	r;
-					if ( !calculate(words[1], r) )
-						break;
-					if ( r=="0" || r=="０" )
-					{
-						sender << "＊計算結果が０だったため、続行します。" << endl;
-						continue;
-					}
+			split(p+2, "\t", words, 2); // ジャンプ先とジャンプ条件の区切り
+
+			if ( words.size()>=2 ) {
+				string	r;
+				if ( !calculate(words[1], r) )
+					break;
+				if ( zen2int(r) == 0 ) {
+					sender << "＊計算結果が０だったため、続行します。" << endl;
+					continue;
 				}
+			}
+
+			if ( words.size() >= 1 ) {
+				jump_to = UnKakko(words[0].c_str(),false,true);
+			}
+			else {
+				jump_to.erase();
 			}
 
 			if ( strncmp(p, "≫", 2)==0 ) {
-
-				string	script;
-				if ( TalkSearch(jump_to, script, (mRequestID!="OnCommunicate") ) ) {
-					result += script;
-					break;	// このフェーズは終了する
-				}
-				sender << "≫" << jump_to << " not found." << endl;
+				ip = std::distance(vec.begin(),it) + 1;
+				--nest_count;
+				return 2;
 			}
-			else if ( talks.is_exist(jump_to) ) {
-				sender << "＞" << jump_to << "" << endl;
-				result += GetSentence(jump_to);
-				break;	// このフェーズは終了する
-			} 
 			else {
-				sender << "＞" << jump_to << " not found." << endl;
-			}
-			continue;
+				ip = std::distance(vec.begin(),it) + 1;
+				--nest_count;
+				return 1;
+			} 
 		}
 
 		// 変数を設定
@@ -209,11 +339,11 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 			string	value;
 			bool	do_calc=false;
 			p+=2;
-			if ( (v=strstr(p, "\t"))!=NULL ) { // 変数名と変数に設定する内容の区切り
-				value = UnKakko(v+1);
+			if ( (v=strstr_hz(p, "\t"))!=NULL ) { // 変数名と変数に設定する内容の区切り
+				value = UnKakko(v+1,false,true);
 			}
-			else if ( (v=strstr(p, "＝"))!=NULL || (v=strstr(p, "="))!=NULL ) {
-				value = UnKakko(v+((*v=='=') ? 1 : 2));
+			else if ( (v=strstr_hz(p, "＝"))!=NULL || (v=strstr_hz(p, "="))!=NULL ) {
+				value = UnKakko(v+((*v=='=') ? 1 : 2),false,true);
 				do_calc=true;
 			}
 			else {
@@ -224,10 +354,11 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 			}
 
 			string	key(p, v-p);
-			key = UnKakko(key.c_str());
+			key = UnKakko(key.c_str(),false,true);
 
 			if ( key=="" ) {
 				result += "＄"; // ＄そのまま表示
+				speaked_speaker.insert(speaker);
 			}
 			else if ( aredigits(zen2han(key)) ) {
 				sender << "＄" << key << "　数字のみの変数名は扱えません." << endl;
@@ -236,13 +367,16 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 			else if ( value=="" ) {
 				sender << "＄" << key << "／cleared." << endl;
 				erase_var(key);	// 存在抹消
+				system_variable_operation(key, "", &result);//存在抹消したものがシステム変数かも！
 			}
 			else {
+				bool isOverwritten;
+				bool isSysValue;
+
+				// "0"は代入先を先に参照する時、エラーを返さないように。
+				string *pstr = GetValue(key,isSysValue,true,&isOverwritten,"0");
 
 				if ( do_calc ) {
-					// 代入先を先に参照する時、エラーを返さないように。
-					variables[key] = "0";	
-
 					if ( !calculate(value, value) )
 						break;
 					if ( aredigits(value) ) {
@@ -251,10 +385,9 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 				}
 
 				sender << "＄" << key << "＝" << value << "／" << 
-					(( variables.find(key) == variables.end() ) ?
-					"writed." : "overwrited.")<< endl;
+					(isOverwritten ? "written." : "overwritten.")<< endl;
 
-				variables[key] = value;
+				if ( pstr ) { *pstr = value; }
 				system_variable_operation(key, value, &result);
 			}
 			continue;
@@ -265,16 +398,38 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 			string	c=get_a_chr(p);	// 全角半角問わず一文字取得し、pを一文字すすめる
 
 			if ( c=="（" ) {	// 何かを取得・挿入
-				string	tmp = KakkoSection(p);
-				result += tmp;
+				character_wait_exec;
+				result += KakkoSection(p);
+			}
+			else if ( c=="\xff" ) {	//内部特殊表現
+				c=get_a_chr(p);
+				if ( c=="\x01" ) { //0xff0x01＝スコープ切り替え　後に半角数値が1文字続く
+					c=get_a_chr(p);
+					int speaker_tmp = stoi(c.c_str());
+					if ( is_speaked(speaker) && speaker != speaker_tmp ) {
+						result += append_at_scope_change;
+						chars_spoken += 2;
+					}
+					speaker = speaker_tmp;
+					character_wait_clear(2);
+					if ( speaker == 0 ) {
+						result += "\\0";
+					}
+					else if ( speaker == 1 ) {
+						result += "\\1";
+					}
+					else {
+						result += "\\p[" + c + "]";
+					}
+				}
 			}
 			else if ( c=="：" ) {	// スコープ切り替え - ここは二人を想定。
 				if ( is_speaked(speaker) ) {
 					result += append_at_scope_change;
-					characters += 2;
+					chars_spoken += 2;
 				}
 				speaker = (speaker==0) ? 1 : 0;
-				character_wait_clear;
+				character_wait_clear(2);
 				result += (speaker ? "\\1" : "\\0");
 			}
 			else if ( c=="\\" || c=="%" ) {	// さくらスクリプトの解釈、というか解釈のスキップ。
@@ -287,9 +442,28 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 				const char*	start=p;
 				string	cmd="",opt="";
 
-				while (!_ismbblead(*p) && (isalpha(*p)||isdigit(*p)||*p=='!'||*p=='*'||*p=='&'||*p=='?'||*p=='_'))
+				while (!_ismbblead(*p) && (isalpha(*p)||isdigit(*p)||*p=='!'||*p=='-'||*p=='*'||*p=='&'||*p=='?'||*p=='_'))
 					++p;
 				cmd.assign(start, p-start);
+
+				if ( cmd == "_?" || cmd == "_!" ) { //エスケープ処理 この間に自動タグ挿入はしない
+					const char* e1 = strstr(p,"\\_?");
+					if ( ! e1 ) { e1 = strstr(p,"\\_!"); }
+
+					if ( e1 ) {
+						character_wait_exec;
+						result += c;
+						result += cmd;
+
+						opt.assign(p,e1-p+3);
+						opt = UnKakko(opt.c_str());
+
+						p = e1 + 3; //endtag
+
+						result += opt;
+						continue;
+					}
+				}
 
 				if (*p=='[') {
 					const char* opt_start = ++p;
@@ -304,25 +478,38 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 
 				if ( cmd=="n" ) {
 					// 改行
-					character_wait_clear;
+					character_wait_clear(2);
 				}
-				else if ( (cmd=="0" && speaker==1) || (cmd=="1" && speaker==0) ) {
+				else if ( ( (cmd=="0" || cmd=="h") && speaker==1) || ( (cmd=="1" || cmd=="u") && speaker==0) ) {
 					// スコープ切り替え
 					if ( is_speaked(speaker) ) {
 						result += append_at_scope_change_with_sakura_script;
-						characters += 2;
+						chars_spoken += 2;
 					}
 					speaker = stoi(cmd);
-					character_wait_clear;
+					character_wait_clear(2);
 				}
 				else if ( cmd=="p" && aredigits(opt) ) {
-					// スコープ切り替えonSSP/CROW
-					if ( is_speaked(speaker) ) {
-						result += append_at_scope_change_with_sakura_script;
-						characters += 2;
+					int spktmp = stoi(opt);
+					if ( speaker != spktmp ) {
+						// スコープ切り替えonSSP/CROW
+						if ( is_speaked(speaker) ) {
+							result += append_at_scope_change_with_sakura_script;
+							chars_spoken += 2;
+						}
+						speaker = spktmp;
+						character_wait_clear(2);
 					}
-					speaker = stoi(opt);
-					character_wait_clear;
+				}
+				else if ( cmd=="s" ) {
+					//サーフィス切り替えの前にウェイトは済ませておくこと
+					character_wait_exec;
+				}
+				else if ( cmd=="_q" ) {
+					if ( ! is_quick_section ) { //これからクイックセクションなのでウエイトを全部消化
+						character_wait_exec;
+					}
+					is_quick_section = ! is_quick_section;
 				}
 
 				if ( opt!="" ) {
@@ -337,22 +524,24 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 				//result += string(start, p-start);
 			}
 			else {	// 通常の一文字
+				character_wait_exec;
+
 				speaked_speaker.insert(speaker);
 				result += c;
-				characters += c.size();
-				if ( c=="。" || c=="、" )
-					character_wait_clear;
+				chars_spoken += c.size();
+				if ( c=="。" || c=="、" ) {
+					character_wait_clear(c=="、"?1:2);
+				}
 			}
 
 		}
-		character_wait_clear;
+		character_wait_clear(2);
 		result += "\\n";
 	}
 
-	kakko_replace_history.pop(1);
-	//DBG(sender << "leave SentenceToSakuraScript, nest-count: " << nest_count << endl);
+	//DBG(sender << "leave SentenceToSakuraScriptInternal, nest-count: " << nest_count << endl);
 	--nest_count;
-	return	result;
+	return 0;
 }
 
 #undef	DBG
@@ -361,7 +550,8 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 // 指定された名前に該当する候補からランダムで一つ選び、
 // さくらスクリプトに展開して返す。
 // 再帰をカウントしてるので不用意なreturnは厳禁。
-bool	Satori::GetSentence(string& ioSentenceName, string& oResultScript) {
+const Talk* Satori::GetSentenceInternal(string& ioSentenceName)
+{
 	// 再帰管理
 	static	int nest_count=0;
 	++nest_count;
@@ -417,17 +607,9 @@ bool	Satori::GetSentence(string& ioSentenceName, string& oResultScript) {
 	{
 		sender << " not matched." << endl; // 条件に一致するものがなかった。
 		--nest_count;
-		return	false;
+		return NULL;
 	}
 	sender << endl;
-
-	// トークをさくらスクリプトに変換
-	{
-		Sender::nest_object smo(2); 
-		oResultScript = SentenceToSakuraScript(*talk);
-		sender << "return: " << oResultScript << "" << endl;
-	}
-
 	--nest_count;
-	return	false;
+	return talk;
 }

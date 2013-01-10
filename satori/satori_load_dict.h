@@ -1,6 +1,4 @@
-#ifdef POSIX
-#  include "posix_utils.h"
-#endif
+#include "posix_utils.h"
 
 void	Satori::InitMembers() {
 
@@ -8,8 +6,6 @@ void	Satori::InitMembers() {
 	mRequestID="";
 
 	replace_before_dic.clear();
-	replace_before_dic["\\h"]="\\0";
-	replace_before_dic["\\u"]="\\1";
 	replace_after_dic.clear();
 
 	mCharacters.clear();
@@ -46,15 +42,23 @@ void	Satori::InitMembers() {
 	talk_interval_random=10;
 	talk_interval_count=0;
 	rate_of_auto_insert_wait=100;
+	type_of_auto_insert_wait = 1;
 
 	append_at_scope_change = "\\n[half]";
 	append_at_scope_change_with_sakura_script = "";
 	append_at_talk_start = "";
 	append_at_talk_end = "";
+	append_at_choice_start = "";
+	append_at_choice_end = "\\n";
 
 	assert(kakko_replace_history.size()==0);
 
-	surface_restore_at_talk=true;
+	surface_restore_at_talk=SR_NORMAL;
+	surface_restore_at_talk_onetime=SR_INVALID;
+
+	auto_anchor_enable = true;
+	auto_anchor_enable_onetime = true;
+
 	surface_add_value.clear();
 	last_talk_exiting_surface.clear();
 	next_default_surface.clear();
@@ -66,14 +70,8 @@ void	Satori::InitMembers() {
 	BalloonOffset[0] = BalloonOffset[1] = "0,0";
 	validBalloonOffset.clear();
 
-#ifdef POSIX
-	// GetTickCount()はWindows起動後の経過ミリ秒…らしい。
-	// それを取得することは出来ないので、エポックミリ秒で代用！
-	tick_count_at_load = posix_get_current_millis();
-#else
-	tick_count_at_load = ::GetTickCount();
-#endif
-	tick_count_total = 0;
+	sec_count_at_load = posix_get_current_sec();
+	sec_count_total = 0;
 
 	ghosts_info.clear();
 	mCommunicateFor="";
@@ -83,6 +81,8 @@ void	Satori::InitMembers() {
 	fOperationLog = true;
 	fResponseLog = true;
 
+	fDebugMode = false;
+
 	reload_flag = false;
 	dic_folder.clear();
 
@@ -90,12 +90,10 @@ void	Satori::InitMembers() {
 
 	timer.clear();
 
-	unkakko_for_calcurate = false;
-
 	on_loaded_script = "";
 	on_unloading_script = "";
 
-	//@ mShioriPlugins.clear(); // 特殊。
+	//@ mShioriPlugins->clear(); // 特殊。
 
 	secure_flag = false;
 
@@ -108,11 +106,42 @@ void	Satori::InitMembers() {
 
 	second_from_last_talk=0;
 
-	
+	mousedown_time = 0;
+	mousedown_exec_complete = false;
+	mousedown_secchange_delay_exec = false;
+	mousedown_secchange_delay_time = 0;
+
+	//喋るごとに初期化する変数
+	return_empty = false;
+	is_quick_section = false;
+
+	surface_restore_at_talk_onetime = SR_INVALID;
+	auto_anchor_enable_onetime = auto_anchor_enable;
+
+	is_dic_loaded = false;
+	is_call_ontalk_at_mikire = false;
+
+	m_nest_limit = 200; //200回も呼ぶな！
+	m_jump_limit = 20000; //こっちはかなり許容
+	m_nest_count = 0;
+
+	header_script = "";
+
+	mReferences.clear();
+	mKakkoCallResults.clear();
+
+	special_commands.insert("when");
+	special_commands.insert("times");
+	special_commands.insert("while");
+	special_commands.insert("for");
+
+	mLoopCounters.clear();
+
 #ifndef POSIX
 	is_single_monitor = true;
 	::ZeroMemory(&desktop_rect, sizeof(RECT));
 	::ZeroMemory(&max_screen_rect, sizeof(RECT));
-	characters_hwnd.clear();
+	//初期化しない
+	//characters_hwnd.clear();
 #endif
 }

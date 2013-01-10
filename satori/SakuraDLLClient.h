@@ -54,4 +54,3 @@ private:
 	BOOL	(*mUnload)();
 #endif
 };
-

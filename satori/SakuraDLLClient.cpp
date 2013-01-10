@@ -8,7 +8,14 @@
 #  define FALSE 0
 #endif
 
-extern void	PluginError(const string& str);
+//////////DEBUG/////////////////////////
+#ifdef _WINDOWS
+#ifdef _DEBUG
+#include <crtdbg.h>
+#define new new( _NORMAL_BLOCK, __FILE__, __LINE__)
+#endif
+#endif
+////////////////////////////////////////
 
 SakuraDLLClient::SakuraDLLClient()
 {
@@ -27,27 +34,41 @@ string	SakuraDLLClient::request(const string& iRequestString)
 {
 	if ( mRequest==NULL )
 	{
-		PluginError("SakuraDLLClient::request: ロードしていないライブラリにrequestしようとしました。");
+		errsender << "SakuraDLLClient::request: ロードしていないライブラリにrequestしようとしました。" << endl;
 		return	"";
 	}
 
-#ifdef POSIX
 	long len = iRequestString.length();
-	char* h = static_cast<char*>(malloc(len));
-	memcpy(h, iRequestString.c_str(), len);
-	h = mRequest(h, &len);
-	string theResponse(static_cast<char*>(h), len);
-	free(h);
-	return theResponse;
+
+#ifdef POSIX
+	char* h = static_cast<char*>(malloc(len + 1));
 #else
-	long	len = iRequestString.length();
-	HGLOBAL h = ::GlobalAlloc(GMEM_FIXED, len);
-	memcpy(h, iRequestString.c_str(), len);
-	h = mRequest(h, &len);
-	string	theResponse((char*)h, len);
-	::GlobalFree(h);
-	return theResponse;
+	HGLOBAL h = ::GlobalAlloc(GMEM_FIXED, len + 1);
 #endif
+
+	memcpy(h, iRequestString.c_str(), len + 1); //ZeroTermまで
+	h = mRequest(h, &len);
+
+	if ( h ) {
+	#ifdef POSIX
+		string theResponse(static_cast<char*>(h), len);
+		free(h);
+	#else
+		void *pLock = ::GlobalLock(h);
+		if ( pLock ) {
+			string theResponse(static_cast<char*>(pLock), len);
+			::GlobalFree(h);
+			return theResponse;
+		}
+		else { //バグ対策 - GlobalAllocで確保してないポインタ向け
+			return string(static_cast<char*>(h), len);
+		}
+	#endif
+
+	}
+	else {
+		return string("");
+	}
 }
 
 // バージョン取得。GET Versionして"SAORI/1.0" みたいのを返す。
@@ -132,14 +153,14 @@ bool	SakuraDLLClient::load(
 	mModule = dlopen(dll_fullpath.c_str(), RTLD_LAZY);
 	if (mModule == NULL) {
 	    sender << "failed." << endl;
-	    PluginError(dlerror());
+	    errsender << dlerror() << endl;
 	    return false;
 	}
 #else
-	mModule = ::LoadLibrary(dll_fullpath.c_str());
+	mModule = ::LoadLibraryEx(dll_fullpath.c_str(),NULL,LOAD_WITH_ALTERED_SEARCH_PATH);
 	if ( mModule==NULL ) {
 		sender << "failed." << endl;
-		PluginError(dll_fullpath + ": LoadLibraryで失敗。");
+		errsender << dll_fullpath + ": LoadLibraryで失敗。" << endl;
 		return	false;
 	}
 #endif
@@ -150,30 +171,42 @@ bool	SakuraDLLClient::load(
 	mUnload = (bool (*)())dlsym(mModule, "unload");
 #else
 	mLoad = (BOOL (*)(HGLOBAL, long))::GetProcAddress(mModule, "load");
+	if ( ! mLoad ) {
+		mLoad = (BOOL (*)(HGLOBAL, long))::GetProcAddress(mModule, "_load");
+	}
+
 	mRequest = (HGLOBAL (*)(HGLOBAL, long*))::GetProcAddress(mModule, "request");
+	if ( ! mRequest ) {
+		mRequest = (HGLOBAL (*)(HGLOBAL, long*))::GetProcAddress(mModule, "_request");
+	}
+
 	mUnload = (BOOL (*)())::GetProcAddress(mModule, "unload");
+	if ( ! mUnload ) {
+		mUnload = (BOOL (*)())::GetProcAddress(mModule, "_unload");
+	}
+
 #endif
 	if ( mRequest==NULL )
 	{
 		sender << "failed." << endl;
 		unload();
-		PluginError(dll_fullpath + ": requestがエクスポートされていません。");
+		errsender << dll_fullpath + ": requestがエクスポートされていません。" << endl;
 		return	false;
 	}
 	if ( mLoad!=NULL )
 	{
 		long len = work_folder.length();
 #ifdef POSIX
-		char* h = static_cast<char*>(malloc(len));
+		char* h = static_cast<char*>(malloc(len + 1));
 #else
-		HGLOBAL h = ::GlobalAlloc(GMEM_FIXED, len);
+		HGLOBAL h = ::GlobalAlloc(GMEM_FIXED, len + 1);
 #endif
-		memcpy(h, work_folder.c_str(), len);
+		memcpy(h, work_folder.c_str(), len + 1); //ZeroTermまで
 		if ( mLoad(h, len) == FALSE )
 		{
 			sender << "failed." << endl;
 			unload();
-			PluginError(dll_fullpath + ": load()がFALSEを返しました。");
+			errsender << dll_fullpath + ": load()がFALSEを返しました。" << endl;
 			return	false;
 		}
 	}

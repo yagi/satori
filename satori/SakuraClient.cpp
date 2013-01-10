@@ -1,5 +1,14 @@
 #include "SakuraClient.h"
 
+//////////DEBUG/////////////////////////
+#ifdef _WINDOWS
+#ifdef _DEBUG
+#include <crtdbg.h>
+#define new new( _NORMAL_BLOCK, __FILE__, __LINE__)
+#endif
+#endif
+////////////////////////////////////////
+
 
 // リクエストを送り、レスポンスを受け取る。戻り値はリターンコード。
 int SakuraClient::request(

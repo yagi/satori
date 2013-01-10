@@ -6,6 +6,15 @@
 #  include <string.h>
 #endif
 
+//////////DEBUG/////////////////////////
+#ifdef _WINDOWS
+#ifdef _DEBUG
+#include <crtdbg.h>
+#define new new( _NORMAL_BLOCK, __FILE__, __LINE__)
+#endif
+#endif
+////////////////////////////////////////
+
 int	Satori::request(
 	const string& i_protocol,
 	const string& i_protocol_version,
@@ -22,7 +31,7 @@ int	Satori::request(
 	mRequestMap.clear();
 	mRequestID = "";
 	mReferences.clear();
-	mReferences.resize(8); // 最小値
+	mReferences.reserve(8); // 最小値
 
 	// 引数をクラスメンバに設定
 	mRequestCommand = i_command;
@@ -33,6 +42,17 @@ int	Satori::request(
 	// 返すプロトコルのデフォルト値
 	o_protocol = "SHIORI";
 	o_protocol_version = "3.0";
+
+	// 喋るごとに初期化する変数
+	return_empty = false;
+
+	surface_restore_at_talk_onetime = SR_INVALID;
+	auto_anchor_enable_onetime = auto_anchor_enable;
+
+	is_quick_section = false;
+
+	// スクリプトヘッダ
+	header_script = "";
 
 	// プロトコルを判別
 	if ( i_protocol=="SAORI" && i_protocol_version[0]>='1' )
@@ -113,7 +133,7 @@ int	Satori::request(
 
 	mRequestID = mRequestMap["ID"];
 	mIsMateria = ( mRequestMap["Sender"] == "embryo" );
-
+	mIsStatusHeaderExist = ( mRequestMap["Sender"] == "SSP" );
 
 	//-------------------------------------------------
 	// リクエストを解釈
@@ -153,12 +173,13 @@ int	Satori::request(
 	if(fRequestLog && logmode)
 	{
 		sender << "--- Request ---" << endl << mStatusLine << endl; // << iRequest << endl;
-		for(strmap::iterator i=mRequestMap.begin() ; i!=mRequestMap.end() ; ++i)
+		for(strmap::const_iterator i=mRequestMap.begin() ; i!=mRequestMap.end() ; ++i)
 			if ( !i->first.empty() && !i->second.empty()
 				&& i->first!="SecurityLevel" 
 				&& i->first!="Sender" 
-				&& i->first!="Charset" )
+				&& i->first!="Charset" ) {
 				sender << i->first << ": " << i->second << endl;
+			}
 	}
 
 	// せきゅあ？
@@ -168,7 +189,59 @@ int	Satori::request(
 	// メイン処理
 	Sender::validate( fOperationLog && logmode );
 	sender << "--- Operation ---" << endl;
-	int	status_code = CreateResponse(mResponseMap);
+
+	int status_code;
+	if ( mRequestID=="ShioriEcho" ) {
+		// ShioriEcho実装
+		if ( fDebugMode && secure_flag ) {
+			string result = SentenceToSakuraScriptExec_with_PreProcess(mReferences);
+			if ( result.length() ) {
+				static const char* const dangerous_tag[] = {"\\![updatebymyself]",
+					"\\![vanishbymyself]",
+					"\\![enter,passivemode]",
+					"\\![enter,inductionmode]",
+					"\\![leave,passivemode]",
+					"\\![leave,inductionmode]",
+					"\\![lock,repaint]",
+					"\\![unlock,repaint]",
+					"\\![biff]",
+					"\\![open,browser",
+					"\\![open,mailer",
+					"\\![raise",
+					"\\j["};
+
+				std::string replace_to;
+				for ( int i = 0 ; i < (sizeof(dangerous_tag)/sizeof(dangerous_tag[0])) ; ++i ) {
+					replace_to = "￥［";
+					replace_to += dangerous_tag[i]+2; //\をヌキ
+					replace(result,dangerous_tag[i],replace_to);
+				}
+
+				//Translate(result); - Translateは後でかかる
+				mResponseMap["Value"] = result;
+				status_code = 200;
+			}
+			else {
+				status_code = 204;
+			}
+		}
+		else {
+			if ( fDebugMode ) {
+				sender << "local/Localでないので蹴りました: ShioriEcho" << endl;
+				status_code = 403;
+			}
+			else {
+				static const std::string dbgmsg = "デバッグモードが無効です。使用するためには＄デバッグ＝有効にしてください。: ShioriEcho";
+				sender << dbgmsg << endl;
+
+				mResponseMap["Value"] = "\\0" + dbgmsg + "\\e";
+				status_code = 200;
+			}
+		}
+	}
+	else {
+		status_code = CreateResponse(mResponseMap);
+	}
 
 	// 後処理１
 	default_surface = next_default_surface;
@@ -179,16 +252,22 @@ int	Satori::request(
 	if ( status_code==200 ) {	// && compare_head(mRequestID, "On")
 		strmap::iterator i = mResponseMap.find("Value");
 		if ( i!=mResponseMap.end() ) {
-			if ( !Translate(i->second) ) {
+			if ( return_empty ) {
 				status_code = 204;
 				mResponseMap.erase(i);
-			} 
+			}
 			else {
-				second_from_last_talk = 0;
-				if ( compare_head(mRequestID, "On") ) {
-					mResponseHistory.push_front(i->second);
-					if ( mResponseHistory.size() >= RESPONSE_HISTORY_SIZE )
-						mResponseHistory.pop_back();
+				if ( !Translate(i->second) ) {
+					status_code = 204;
+					mResponseMap.erase(i);
+				} 
+				else {
+					second_from_last_talk = 0;
+					if ( compare_head(mRequestID, "On") ) {
+						mResponseHistory.push_front(i->second);
+						if ( mResponseHistory.size() >= RESPONSE_HISTORY_SIZE )
+							mResponseHistory.pop_back();
+					}
 				}
 			}
 		}
@@ -204,23 +283,58 @@ int	Satori::request(
 
 		switch ( mRequestMode ) {
 		case SAORI:
-			if ( key=="Value" )
+			if ( key=="Value" ) {
 				key = "Result";
-			else if ( compare_head(key, "Reference") )
+				value = header_script + value;
+			}
+			else if ( compare_head(key, "Reference") ) {
 				key = string() + "Value" + (key.c_str()+9);
+			}
 			break;
 		case SHIORI2:
-			if ( key=="Value" )
+			if ( key=="Value" ) {
 				key = "Sentence";
+				value = header_script + value;
+			}
 			break;
 		case MAKOTO2:
-			if ( key=="Value" )
+			if ( key=="Value" ) {
 				key = "String";
+				value = header_script + value;
+			}
 			break;
 		default:
+			if ( key=="Value" ) {
+				value = header_script + value;
+			}
 			break;
 		}
 		o_data.push_back( strpair(key, value) );
+	}
+
+	if ( errsender.get_log_mode() ) {
+		const std::vector<string> &errlog = errsender.get_log();
+
+		std::string errmsg;
+		std::string errlevel;
+
+		for ( std::vector<string>::const_iterator itr = errlog.begin() ; itr != errlog.end(); ++itr ) {
+			errmsg += "SATORI - ";
+			errmsg += mRequestID;
+			errmsg += " > ";
+			errmsg += *itr;
+			errmsg += "\1";
+			errlevel += "critical\1";
+		}
+
+		if ( errmsg.length() ) {
+			errmsg.erase(errmsg.end()-1,errmsg.end());
+			errlevel.erase(errlevel.end()-1,errlevel.end());
+
+			o_data.push_back( strpair("ErrorLevel",errlevel) );
+			o_data.push_back( strpair("ErrorDescription",errmsg) );
+		}
+		errsender.clear_log();
 	}
 
 	Sender::validate();

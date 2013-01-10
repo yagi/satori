@@ -6,6 +6,15 @@
 #  include	<mbctype.h>
 #endif
 
+//////////DEBUG/////////////////////////
+#ifdef _WINDOWS
+#ifdef _DEBUG
+#include <crtdbg.h>
+#define new new( _NORMAL_BLOCK, __FILE__, __LINE__)
+#endif
+#endif
+////////////////////////////////////////
+
 // ”’lE•¶š—ñ‰‰Z‚ğs‚Á‚ÄŒ‹‰Ê‚ğString‚ÉB•Ô’lfalse‚È‚ç®‚ª•ÏB
 // ‚Q€‰‰Zq +,-,*,/,%,^,<,>,<=,>=,==,!=,&&,||,=~,!~
 // ’P€‰‰Zq +,-,!
@@ -25,9 +34,9 @@
 // •¶š—ñ !~ •¶š—ñ
 
 // ‘S‚Ä”¼Šp‚Å‚ ‚é‚±‚ÆB‹ó”’“™‚Í”F‚ß‚È‚¢
-extern bool calc(const char* iExpression, string& oResult);
+extern bool calc(const char* iExpression, string& oResult,bool isStrict);
 // ”¼Šp‘SŠpƒXƒy[ƒX‚Æƒ^ƒu‹L†‚ÌÁ‹A”šE‹L†‚Ì”¼Šp‰»‚Ü‚Å‘S•”‚â‚Á‚½‚°‚é
-extern	bool calc(string& ioString);
+extern	bool calc(string& ioString,bool isStrict = false);
 
 
 struct calc_element {
@@ -77,7 +86,7 @@ inline int check_number(const char* start_pos) {
 }
 
 
-static bool	make_deque(const char*& p, deque<calc_element>& oDeque) {
+static bool	make_array(const char*& p, std::vector<calc_element>& oData) {
 
 
 	while (true) {
@@ -86,19 +95,19 @@ static bool	make_deque(const char*& p, deque<calc_element>& oDeque) {
 		int	len;
 
 		if ( *p == '(' ) {
-			oDeque.push_back( calc_element("(", 110) );
-			if ( !make_deque(++p, oDeque) )	// ƒJƒbƒR“à‚ğÄ‹Aˆ—
+			oData.push_back( calc_element("(", 110) );
+			if ( !make_array(++p, oData) )	// ƒJƒbƒR“à‚ğÄ‹Aˆ—
 				return	false;	// ƒGƒ‰[‚Íƒgƒbƒv‚Ü‚Å“`‚¦‚é
 			if ( *p++ !=')' )
 				return	false;
-			oDeque.push_back( calc_element(")", 10) );
+			oData.push_back( calc_element(")", 10) );
 		}
 		else if (*p=='!' || *p=='+' || *p=='-') {	// ’P€‰‰Zq
-			oDeque.push_back( calc_element(string(p++, 1), 90) );
+			oData.push_back( calc_element(string(p++, 1), 90) );
 			continue;
 		}
 		else if ( (len=check_number(p))!=0 ) {	// ”í‰‰Zqi”’lj
-			oDeque.push_back( calc_element(string(p,len), 100) );
+			oData.push_back( calc_element(string(p,len), 100) );
 			p+=len;
 		}
 		else {	// ”í‰‰Zqi•¶š—ñj
@@ -116,7 +125,7 @@ static bool	make_deque(const char*& p, deque<calc_element>& oDeque) {
 			if (p==start)
 				return	false;	// ”í‰‰Zq‚ª•K—v‚È‚Ì‚ÉA‚È‚¢B
 
-			oDeque.push_back( calc_element(string(start,p-start), 100) );
+			oData.push_back( calc_element(string(start,p-start), 100) );
 		}
 
 		// €‚ÌI—¹B”í‰‰Zq‚ÌŒã‚Å‚ ‚é‚±‚ÌêŠ‚Å‚Ì‚İ³í’Eo
@@ -135,13 +144,13 @@ static bool	make_deque(const char*& p, deque<calc_element>& oDeque) {
 		else if ( str=="=~" || str=="!~" ) { priority=75; } // ƒpƒ^[ƒ“ƒ}ƒbƒ`
 		else if ( str=="*" || str=="/" || str=="%" ) { priority=70; }
 		else if ( str=="+" || str=="-" ) { priority=60; }
-		else if ( str=="<" || str==">" || str=="<=" || str==">=" ) { priority=80; }
+		else if ( str=="<" || str==">" || str=="<=" || str==">=" ) { priority=50; }
 		else if ( str=="==" || str=="!=" ) { priority=45; }
 		else if ( str=="&&" ) { priority=40; }
 		else if ( str=="||" ) { priority=35; }
 		else return	false;
 
-		oDeque.push_back( calc_element(str, priority) );
+		oData.push_back( calc_element(str, priority) );
 	}
 }
 
@@ -174,7 +183,7 @@ static bool	make_deque(const char*& p, deque<calc_element>& oDeque) {
 	}
 
 
-static bool	calc_polish(simple_stack<calc_element>& polish, string& oResult) {
+static bool	calc_polish(simple_stack<calc_element>& polish, string& oResult,bool isStrict) {
 	simple_stack<string>	stack;
 	for ( int n=0 ; n<polish.size()-1 ; n++ ) {
 		calc_element&	el=polish[n];
@@ -196,13 +205,14 @@ static bool	calc_polish(simple_stack<calc_element>& polish, string& oResult) {
 			string	rhs=stack.pop(), lhs=stack.pop();
 			if ( aredigits(lhs) && aredigits(rhs) ) {
 				stack.push(itos( stoi(lhs)*stoi(rhs) )); 
-			} else if ( aredigits(rhs) ) {
+			} else if ( aredigits(rhs) && ! isStrict ) {
 				int	num = stoi(rhs);
 				stack.push("");
 				for (int i=0;i<num;++i)
 					stack.top() += lhs;
-			} else 
+			} else {
 				return	false;
+			}
 		}
 		a_op_b(/)
 		a_op_b(%)
@@ -211,8 +221,10 @@ static bool	calc_polish(simple_stack<calc_element>& polish, string& oResult) {
 			string	rhs=stack.pop(), lhs=stack.pop();
 			if ( aredigits(lhs) && aredigits(rhs) ) {
 				stack.push(itos( stoi(lhs)+stoi(rhs) )); 
-			} else {
+			} else if ( ! isStrict ) {
 				stack.push(lhs+rhs); 
+			} else {
+				return false;
 			}
 		}
 		else if ( el.str == "-" ) {
@@ -220,9 +232,11 @@ static bool	calc_polish(simple_stack<calc_element>& polish, string& oResult) {
 			string	rhs=stack.pop(), lhs=stack.pop();
 			if ( aredigits(lhs) && aredigits(rhs) ) {
 				stack.push(itos( stoi(lhs)-stoi(rhs) )); 
-			} else {
+			} else if ( ! isStrict ) {
 				erase(lhs, rhs);
 				stack.push(lhs);
+			} else {
+				return false;
 			}
 		}
 		else if ( el.str == "=~" || el.str == "!~" ) {
@@ -249,9 +263,9 @@ static bool	calc_polish(simple_stack<calc_element>& polish, string& oResult) {
 	return	true;
 }
 
-bool calc(const char* iExpression, string& oResult) {
-	deque<calc_element>	org;
-	if ( !make_deque(iExpression, org) )
+bool calc(const char* iExpression, string& oResult,bool isStrict) {
+	std::vector<calc_element>	org;
+	if ( !make_array(iExpression, org) )
 		return	false;
 	if ( *iExpression!='\0' )
 		return	false;	// ‚È‚ñ‚©ƒSƒ~‚ªc‚Á‚Ä‚½H
@@ -259,7 +273,7 @@ bool calc(const char* iExpression, string& oResult) {
 	simple_stack<calc_element>	stack,polish;
 	stack.push(calc_element("Guard", 0));	// ”Ô•º
 
-	deque<calc_element>::const_iterator i;
+	std::vector<calc_element>::const_iterator i;
 	for ( i=org.begin() ; i!=org.end() ; ++i ) {
 		while ( i->priority <= stack.top().priority && stack.top().str != "(" )
 			polish.push(stack.pop());
@@ -271,48 +285,57 @@ bool calc(const char* iExpression, string& oResult) {
 		polish.push(stack.pop());
 
 	// ŒvZ
-	return	calc_polish(polish, oResult);
+	return	calc_polish(polish, oResult,isStrict);
 }
 
 
-bool calc(string& ioString) {
-	erase(ioString, "@");
-	erase(ioString, " ");
-	erase(ioString, "\t");
+bool calc(string& ioString,bool isStrict)
+{
+	string iString = ioString;
+
+	erase(iString, "@");
+	erase(iString, " ");
+	erase(iString, "\t");
 
 	// Æ®Û‚Í’P‘Ì‚Å‰‰Zq‚É‚Í‚µ‚½‚­‚È‚¢[
-	replace(ioString, "`", "=~");
-	replace(ioString, "I`", "!~");
+	replace(iString, "`", "=~");
+	replace(iString, "I`", "!~");
 
-	replace(ioString, "{", "+");
-	replace(ioString, "|", "-");
-	replace(ioString, "–", "*");
-	replace(ioString, "~", "*");
-	replace(ioString, "^", "/");
-	replace(ioString, "€", "/");
-	replace(ioString, "“", "%");
-	replace(ioString, "O", "^");
-	replace(ioString, "ƒ", "<");
-	replace(ioString, "„", ">");
-	replace(ioString, "", "=");
-	replace(ioString, "I", "!");
-	replace(ioString, "•", "&");
-	replace(ioString, "b", "|");
-	replace(ioString, "i", "(");
-	replace(ioString, "j", ")");
-	replace(ioString, "‚O", "0");
-	replace(ioString, "‚P", "1");
-	replace(ioString, "‚Q", "2");
-	replace(ioString, "‚R", "3");
-	replace(ioString, "‚S", "4");
-	replace(ioString, "‚T", "5");
-	replace(ioString, "‚U", "6");
-	replace(ioString, "‚V", "7");
-	replace(ioString, "‚W", "8");
-	replace(ioString, "‚X", "9");
+	replace(iString, "{", "+");
+	replace(iString, "|", "-");
+	replace(iString, "–", "*");
+	replace(iString, "~", "*");
+	replace(iString, "^", "/");
+	replace(iString, "€", "/");
+	replace(iString, "“", "%");
+	replace(iString, "O", "^");
+	replace(iString, "ƒ", "<");
+	replace(iString, "„", ">");
+	replace(iString, "", "=");
+	replace(iString, "I", "!");
+	replace(iString, "•", "&");
+	replace(iString, "b", "|");
+	replace(iString, "i", "(");
+	replace(iString, "j", ")");
+	replace(iString, "‚O", "0");
+	replace(iString, "‚P", "1");
+	replace(iString, "‚Q", "2");
+	replace(iString, "‚R", "3");
+	replace(iString, "‚S", "4");
+	replace(iString, "‚T", "5");
+	replace(iString, "‚U", "6");
+	replace(iString, "‚V", "7");
+	replace(iString, "‚W", "8");
+	replace(iString, "‚X", "9");
+
 	string	theResult;
-	if ( !calc(ioString.c_str(), theResult) )
+	if ( !calc(iString.c_str(), theResult, isStrict) ) {
 		return	false;
-	ioString = theResult;
+	}
+
+	//‘SŠpE”¼Šp‚Æ‚©‚ğ‚Ş‚â‚İ‚É•ÏŠ·‚µ‚È‚¢‚æ‚¤‚É‹C‚ğ‚Â‚¯‚é
+	if ( theResult != iString ) {
+		ioString = theResult;
+	}
 	return	true;
 }

@@ -1,15 +1,28 @@
 #include	"Sender.h"
 #ifdef POSIX
 #  include      "Utilities.h"
-#  include      <stdio.h>
-#  include      <stdarg.h>
 #else
 #  include      "Utilities.h"
 //#  include	<mbctype.h>		// for _ismbblead()
 #endif
+#include      <locale.h>
+#include      <stdio.h>
+#include      <stdarg.h>
+
+//////////DEBUG/////////////////////////
+#ifdef _WINDOWS
+#ifdef _DEBUG
+#include <crtdbg.h>
+#define new new( _NORMAL_BLOCK, __FILE__, __LINE__)
+#endif
+#endif
+////////////////////////////////////////
+
+#pragma warning( disable : 4786 ) //「デバッグ情報内での識別子切捨て」
 
 // グローバルオブジェクト
 Sender::sender_stream	sender;
+Sender::error_stream	errsender;
 
 // staticメンバ
 bool Sender::sm_sender_flag = true;
@@ -72,14 +85,17 @@ bool	Sender::send(const char* iFormat, ...)
 	}
 
 	const int nest = nest_object::count();
+	DWORD ret_dword = 0;
+	
 	if ( nest>0 )
 	{
 		char*	buf = new char[nest+1];
-		for ( int i=0 ; i<nest ; ++i )
+		int i;
+		for ( i=0 ; i<nest ; ++i )
 			buf[i]=' ';
 		buf[i]='\0';
 		COPYDATASTRUCT	cds = {1, nest+1, buf};
-		::SendMessage(sm_receiver_window, WM_COPYDATA, NULL, (LPARAM)(&cds));
+		::SendMessageTimeout(sm_receiver_window, WM_COPYDATA, NULL, (LPARAM)(&cds),SMTO_BLOCK|SMTO_ABORTIFHUNG,5000,&ret_dword);
 		delete [] buf;
 	}
 
@@ -92,7 +108,7 @@ bool	Sender::send(const char* iFormat, ...)
 	}*/
 
 	COPYDATASTRUCT	cds = {0,  strlen(theBuf)+1, &theBuf};
-	::SendMessage(sm_receiver_window, WM_COPYDATA, NULL, (LPARAM)(&cds));
+	::SendMessageTimeout(sm_receiver_window, WM_COPYDATA, NULL, (LPARAM)(&cds),SMTO_BLOCK|SMTO_ABORTIFHUNG,5000,&ret_dword);
 
 	//::OutputDebugString(theBuf);
 	//::OutputDebugString("\n");
@@ -126,6 +142,52 @@ int Sender::sender_buf::overflow(int c)
 				pos = 1;
 			} else {
 				send("%s", line);
+				line[0]='\0';
+				pos = 0;
+			}
+		}
+	}
+	return	c;
+}
+
+void Sender::error_buf::send(const std::string &line)
+{
+	if ( ! line.length() ) { return; }
+	if ( log_mode ) {
+		log_data.push_back(line);
+	}
+	else {
+#ifdef POSIX
+        cerr << "error - SATORI : " << line << endl;
+#else
+        ::MessageBox(NULL, line.c_str(), "error - SATORI", MB_OK|MB_SYSTEMMODAL);
+#endif
+	}
+}
+
+int Sender::error_buf::overflow(int c)
+{
+	if ( c=='\n' || c=='\0' || c==EOF )
+	{
+		send(line);
+		line[0]='\0';
+		pos = 0;
+	} 
+	else
+	{
+		// バッファにためる
+		line[pos++] = c;
+		line[pos] = '\0';
+
+		if ( pos+1>=MAX ) {
+			if ( _ismbblead(c) ) {
+				line[pos-1]='\0';
+				send(line);
+				line[0]=c;
+				line[1]='\0';
+				pos = 1;
+			} else {
+				send(line);
 				line[0]='\0';
 				pos = 0;
 			}

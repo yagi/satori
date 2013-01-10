@@ -1,7 +1,7 @@
 #include	"../_/utilities.h"
 #include	"../_/FMO.h"
 #include	"../satori/satori.h"
-#include	"../_/sender.h"
+#include	"../_/Sender.h"
 #include	"../_/stltool.h"
 #include	"../_/Font.h"
 #include	"resource.h"
@@ -10,7 +10,8 @@
 
 string	SATORITE_WINDOW_CAPTION()
 {
-	return	string() + "さとりて phase 9 / " + gSatoriName + " " + gSatoriVersion;
+	static string wcaption(string() + "さとりて phase 9 / " + gSatoriName + " " + gSatoriVersion); 
+	return wcaption;
 }
 
 
@@ -144,8 +145,10 @@ string	Do(const string& str, bool like_dict, bool satori, HWND hwnd)
 	string	script;
 	if ( !satori )
 	{
-		for ( strvec::iterator i=vec.begin() ; i!=vec.end() ; ++i )
+		for ( strvec::const_iterator i=vec.begin() ; i!=vec.end() ; ++i ) {
 			script += *i;
+		}
+		pSatori->Translate(script);
 	}
 	else if ( like_dict ) 
 	{
@@ -172,7 +175,7 @@ string	Do(const string& str, bool like_dict, bool satori, HWND hwnd)
 		data.push_back( strpair("SecurityLevel", "Local") );
 		pSatori->request("SAORI", "1.0", "EXECUTE", data, protocol, protcol_version, r_data); /**/
 		sender << r_data << endl;
-		for ( strpairvec::iterator it = r_data.begin() ; it != r_data.end() ; ++it )
+		for ( strpairvec::const_iterator it = r_data.begin() ; it != r_data.end() ; ++it )
 		{
 			if ( it->first == "Value" || it->first == "Result" )
 			{
@@ -182,10 +185,9 @@ string	Do(const string& str, bool like_dict, bool satori, HWND hwnd)
 		}
 	} else {
 		// さくらスクリプト変換
-		script = pSatori->SentenceToSakuraScript_with_PreProcess(vec) + "\\e";
+		script = pSatori->SentenceToSakuraScriptExec_with_PreProcess(vec) + "\\e";
+		pSatori->Translate(script);
 	}
-	if ( !pSatori->Translate(script) )
-		script="";
 
 	direct_sstp(script, "Satorite", hwnd);
 	return	script;
@@ -334,6 +336,9 @@ WinMain(
 	LPSTR lpszCmdParam,
 	int iShowCmd) 
 {
+	setlocale(LC_ALL, "Japanese");
+	_setmbcp(_MB_CP_LOCALE);
+
 	gInstance = hInstance;
 
 	HANDLE	hMutex = ::CreateMutex( NULL, FALSE, "SATORITE_MUTEX_OBJECT" );
@@ -379,4 +384,6 @@ WinMain(
 
 	return	ret;
 }
+
+
 
